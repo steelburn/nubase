@@ -13,7 +13,7 @@ jobs:
     name: Build and publish
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write # create the GitHub Release for the tag
 
     steps:
       - name: Checkout
@@ -54,3 +54,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Runs only after the image push above succeeds. Auto-generates release notes
+      # from commits/PRs; idempotent so re-running a tag won't error.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          NOTES="$(printf '## Docker image\n\n```bash\ndocker pull docker.io/%s:%s\n```\n' "${IMAGE_NAME}" "${TAG#v}")"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — skipping."
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes --notes "$NOTES"
+          fi
