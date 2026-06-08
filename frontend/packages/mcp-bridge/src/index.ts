@@ -7,7 +7,7 @@ import { McpStdioServer } from './mcp-stdio.js';
 import { NubaseClient } from './nubase-client.js';
 import { callTool, TOOLS } from './tools.js';
 
-const CLI_VERSION = '0.1.10';
+const CLI_VERSION = '0.1.11';
 
 if (process.argv[2] === 'install-skills') {
   const options = parseInstallArgs(process.argv.slice(3));
