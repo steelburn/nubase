@@ -1,5 +1,9 @@
 # Nubase
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-10A074.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/nubase_cli?logo=npm&label=nubase_cli&color=cb3837)](https://www.npmjs.com/package/nubase_cli)
+[![GitHub stars](https://img.shields.io/github/stars/OtterMind/Nubase?style=social)](https://github.com/OtterMind/Nubase)
+
 **Backend services born for AI.** Nubase is an open-source, AI-native backend platform — **Memory, Database, Storage, and Auth** in one self-hostable service. Give AI-generated apps and coding agents a real backend, so they can go from prototype to production without rebuilding the same infrastructure every time.
 
 > Supabase-style where it makes sense (Postgres, REST, JWTs, RLS, object storage, a Studio dashboard) — plus first-class **Memory**, an **MCP** surface built for AI coding agents, and **multi-project** self-hosting.
@@ -107,6 +111,11 @@ Supabase is excellent, but its open-source self-hosted stack is designed around 
 
 ## Nubase vs Supabase
 
+![Nubase vs Supabase — an AI-native, self-hostable backend with built-in Memory and MCP for AI coding](brand/nubase-vs-supabase.png)
+
+<details>
+<summary>Full comparison as a table (including Supabase Cloud)</summary>
+
 | Area | Supabase Cloud | Supabase self-hosted | Nubase |
 | --- | --- | --- | --- |
 | Multi-project dashboard | Yes | No (mimics one project) | **Yes** |
@@ -117,6 +126,8 @@ Supabase is excellent, but its open-source self-hosted stack is designed around 
 | AI memory | Not a core primitive | Not a core primitive | **Built-in Memory pillar** |
 | AI coding backend target | General primitives | General primitives | **Memory + REST + MCP + Studio** |
 | Realtime / Edge Functions | Yes | Available in stack | Not yet |
+
+</details>
 
 ## Architecture
 
