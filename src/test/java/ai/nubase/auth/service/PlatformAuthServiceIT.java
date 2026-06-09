@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -28,6 +29,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @SpringBootTest
 @ActiveProfiles("dev")
+// This IT exercises password + JWT mechanics directly; it can't fetch an emailed OTP, so it runs with
+// email verification off (signUp/signIn then return a token immediately). The OTP flow is covered by
+// PlatformAuthControllerTest and PlatformOtpServiceTest.
+@TestPropertySource(properties = "nubase.platform.email-verification-enabled=false")
 @DisplayName("PlatformAuthService (dev metadata DB)")
 class PlatformAuthServiceIT {
 
@@ -65,7 +70,7 @@ class PlatformAuthServiceIT {
         req.setPassword("test-password-12345");
         req.setFullName("Test User");
 
-        PlatformAuthResponse res = service.signUp(req);
+        PlatformAuthResponse res = service.signUp(req).token();
         track(res);
 
         assertThat(res.getAccessToken()).isNotBlank();
@@ -83,7 +88,7 @@ class PlatformAuthServiceIT {
         req.setEmail(uniqueEmail());
         req.setPassword("test-password-12345");
 
-        PlatformAuthResponse res = service.signUp(req);
+        PlatformAuthResponse res = service.signUp(req).token();
         track(res);
 
         UUID subject = service.validateAndGetSubject(res.getAccessToken());
@@ -96,7 +101,7 @@ class PlatformAuthServiceIT {
         PlatformSignUpRequest first = new PlatformSignUpRequest();
         first.setEmail(uniqueEmail());
         first.setPassword("test-password-12345");
-        PlatformAuthResponse one = service.signUp(first);
+        PlatformAuthResponse one = service.signUp(first).token();
         track(one);
 
         PlatformSignUpRequest dup = new PlatformSignUpRequest();
@@ -116,12 +121,12 @@ class PlatformAuthServiceIT {
         PlatformSignUpRequest reg = new PlatformSignUpRequest();
         reg.setEmail(email);
         reg.setPassword(password);
-        track(service.signUp(reg));
+        track(service.signUp(reg).token());
 
         PlatformSignInRequest ok = new PlatformSignInRequest();
         ok.setEmail(email);
         ok.setPassword(password);
-        PlatformAuthResponse res = service.signIn(ok);
+        PlatformAuthResponse res = service.signIn(ok).token();
         assertThat(res.getAccessToken()).isNotBlank();
 
         PlatformSignInRequest bad = new PlatformSignInRequest();
@@ -141,7 +146,7 @@ class PlatformAuthServiceIT {
         PlatformSignUpRequest reg = new PlatformSignUpRequest();
         reg.setEmail(email);
         reg.setPassword(password);
-        PlatformAuthResponse one = service.signUp(reg);
+        PlatformAuthResponse one = service.signUp(reg).token();
         track(one);
 
         // Flip is_active = false directly via repo

@@ -90,7 +90,7 @@ export default function NewProjectPage() {
       toast({ variant: 'success', title: 'Project created', message: 'Initializing the database…' });
       router.push(`/project/${appCode}`);
     } catch (err) {
-      const msg = (err as ApiError).message ?? 'Failed to create project.';
+      const msg = parseError(err as ApiError) ?? 'Failed to create project.';
       setError(msg);
       toast({ variant: 'error', title: 'Create failed', message: msg });
       setLoading(false);
@@ -186,4 +186,14 @@ export default function NewProjectPage() {
       </Card>
     </div>
   );
+}
+
+/** The backend returns errors as JSON ({ error, message, ... }); fall back to the raw text. */
+function parseError(err: ApiError): string | null {
+  try {
+    const parsed = JSON.parse(err.message);
+    return parsed?.error ?? parsed?.message ?? null;
+  } catch {
+    return err.message;
+  }
 }

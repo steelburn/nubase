@@ -271,7 +271,13 @@ public class EmailService {
      * Send invitation email for admin-invited users
      */
     public void sendInvitationEmail(User user, String token, String redirectTo) {
-        String inviteUrl = baseDomain() + "?token=" + token + "&type=invite&email=" + user.getEmail();
+        // Must hit the /auth/v1/verify endpoint (like confirmation/recovery) — not the bare domain,
+        // which just lands on the marketing homepage and can't accept the invite.
+        String inviteUrl = baseDomain() + "/auth/v1/verify?token=" + token + "&type=invite&email="
+                + user.getEmail() + "&apikey=" + MultiTenancyContext.getContext().getApikey();
+        if (StringUtils.isNotBlank(redirectTo)) {
+            inviteUrl += "&redirect_to=" + redirectTo;
+        }
         Map<String, String> vars = new HashMap<>();
         vars.put("ConfirmationURL", inviteUrl);
         vars.put("Email", user.getEmail());

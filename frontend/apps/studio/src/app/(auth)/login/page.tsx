@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button, Input, Label } from '@nubase/ui';
@@ -12,6 +12,17 @@ interface PlatformAuthResponse {
   token_type: string;
   expires_in: number;
   user: { id: string; email: string; full_name?: string | null; role?: string | null };
+}
+
+interface PendingResponse {
+  verification_required: true;
+  email: string;
+}
+
+type TokenResult = PlatformAuthResponse | PendingResponse;
+
+function isPending(r: TokenResult): r is PendingResponse {
+  return (r as PendingResponse).verification_required === true;
 }
 
 interface PlatformUserPayload {
@@ -38,8 +49,11 @@ declare global {
           initialize: (cfg: {
             client_id: string;
             callback: (resp: { credential?: string }) => void;
+            auto_select?: boolean;
+            cancel_on_tap_outside?: boolean;
+            context?: string;
           }) => void;
-          renderButton: (el: HTMLElement, opts: Record<string, unknown>) => void;
+          prompt: () => void;
         };
       };
     };
@@ -89,7 +103,11 @@ function LoginContent() {
   const [error, setError] = useState<string | null>(null);
 
   const [config, setConfig] = useState<PublicConfig | null>(null);
-  const googleBtnRef = useRef<HTMLDivElement | null>(null);
+
+  // Set when an unverified account must confirm an emailed code before its first session.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
 
   const completeLogin = useCallback(
     (res: PlatformAuthResponse) => {
@@ -152,15 +170,22 @@ function LoginContent() {
       });
   }, [completeLogin]);
 
-  // Render the Google Identity Services button when Google is enabled.
+  // Google One Tap: auto-detect a signed-in Google account and float the prompt (top-right) so the
+  // user can sign in with one click — no inline button next to the password form. Users not signed
+  // into Google fall back to the "Continue with Google" redirect / GitHub / password.
   useEffect(() => {
     if (!config?.google_enabled || !config.google_client_id) return;
+    // Don't pop One Tap while the email-verification step is showing.
+    if (pendingEmail) return;
     let cancelled = false;
     loadGisScript()
       .then(() => {
-        if (cancelled || !window.google || !googleBtnRef.current) return;
+        if (cancelled || !window.google) return;
         window.google.accounts.id.initialize({
           client_id: config.google_client_id!,
+          auto_select: false,
+          cancel_on_tap_outside: true,
+          context: 'signin',
           callback: (resp) => {
             if (!resp.credential) return;
             setLoading(true);
@@ -176,35 +201,31 @@ function LoginContent() {
               });
           },
         });
-        const width = Math.min(googleBtnRef.current.offsetWidth || 320, 400);
-        window.google.accounts.id.renderButton(googleBtnRef.current, {
-          type: 'standard',
-          theme: 'outline',
-          size: 'large',
-          text: 'continue_with',
-          shape: 'rectangular',
-          logo_alignment: 'center',
-          width,
-        });
+        window.google.accounts.id.prompt();
       })
       .catch(() => {
-        /* GIS unreachable — Google button is simply omitted. */
+        /* GIS unreachable — One Tap is simply skipped; other sign-in options remain. */
       });
     return () => {
       cancelled = true;
     };
-  }, [config, completeLogin]);
+  }, [config, completeLogin, pendingEmail]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch<PlatformAuthResponse>('/auth/v1/platform/token', {
+      const res = await apiFetch<TokenResult>('/auth/v1/platform/token', {
         method: 'POST',
         body: { email, password },
       });
-      completeLogin(res);
+      if (isPending(res)) {
+        setPendingEmail(res.email);
+        setNotice(`We sent a 6-digit code to ${res.email}.`);
+      } else {
+        completeLogin(res);
+      }
     } catch (err) {
       const e = err as ApiError;
       setError(parseError(e) ?? 'Sign in failed.');
@@ -213,9 +234,78 @@ function LoginContent() {
     }
   }
 
-  const showOAuth = Boolean(
-    config?.google_enabled || config?.google_code_enabled || config?.github_enabled,
-  );
+  async function onVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch<PlatformAuthResponse>('/auth/v1/platform/verify-email', {
+        method: 'POST',
+        body: { email: pendingEmail, code },
+      });
+      completeLogin(res);
+    } catch (err) {
+      setError(parseError(err as ApiError) ?? 'Verification failed.');
+      setLoading(false);
+    }
+  }
+
+  async function onResend() {
+    setError(null);
+    try {
+      await apiFetch('/auth/v1/platform/verify-email/resend', {
+        method: 'POST',
+        body: { email: pendingEmail },
+      });
+    } catch {
+      /* always report sent — no account enumeration */
+    }
+    setNotice('A new code is on its way.');
+  }
+
+  // One Tap (google_enabled) floats as an overlay, so the inline button row only shows the
+  // redirect-based providers.
+  const showOAuth = Boolean(config?.google_code_enabled || config?.github_enabled);
+
+  if (pendingEmail) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold tracking-tight">Confirm your email</h1>
+          <p className="text-sm text-muted-foreground">
+            Enter the 6-digit code we emailed to <span className="font-medium">{pendingEmail}</span>.
+          </p>
+        </div>
+        <form onSubmit={onVerify} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="code">Verification code</Label>
+            <Input
+              id="code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              required
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+            />
+          </div>
+          {notice ? <p className="text-xs text-muted-foreground">{notice}</p> : null}
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <Button type="submit" disabled={loading || code.length < 6} className="w-full">
+            {loading ? 'Verifying…' : 'Verify & continue'}
+          </Button>
+        </form>
+        <button
+          type="button"
+          onClick={onResend}
+          className="block w-full text-center text-sm text-muted-foreground underline-offset-4 hover:underline"
+        >
+          Didn&apos;t get it? Resend code
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -228,9 +318,6 @@ function LoginContent() {
 
       {showOAuth ? (
         <div className="space-y-3">
-          {config?.google_enabled ? (
-            <div ref={googleBtnRef} className="flex min-h-[40px] w-full justify-center" />
-          ) : null}
           {config?.google_code_enabled ? (
             <a
               href={`${API_BASE}/auth/v1/platform/oauth/google/start`}

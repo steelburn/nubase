@@ -152,11 +152,24 @@ nubase:
         max-requests: 100
         window-seconds: 60
     app:
-      domain: localhost:9999
-      scheme: http
+      # Public host used to build tenant email links (confirm/recovery/magic-link/invite):
+      #   {scheme}://{appCode}.{service-name}/auth/v1/verify?...
+      # Must be your real domain in production (e.g. nubase.ai) so links aren't localhost.
+      # NOTE: the per-tenant subdomain form requires wildcard DNS (*.your-domain) routed to the app.
+      service-name: ${NUBASE_AUTH_APP_DOMAIN:localhost:9999}
+      scheme: ${NUBASE_AUTH_APP_SCHEME:http}
 
   # Platform (Studio developer account) configuration.
   platform:
+    # Display name used in platform verification emails (subject + body).
+    app-name: ${NUBASE_PLATFORM_APP_NAME:Nubase}
+    # Require email-code confirmation for password signup/login and password change.
+    # OAuth (Google/GitHub) sign-ins are always exempt. Set false to disable (e.g. no SMTP).
+    email-verification-enabled: ${NUBASE_PLATFORM_EMAIL_VERIFICATION_ENABLED:true}
+    # One-time verification code settings.
+    otp:
+      length: ${NUBASE_PLATFORM_OTP_LENGTH:6}
+      expiration-seconds: ${NUBASE_PLATFORM_OTP_EXPIRATION_SECONDS:600}
     # Third-party sign-in for Studio accounts. Each provider auto-hides on the
     # login page / homepage unless its credentials are set here. Leave blank to disable.
     oauth:

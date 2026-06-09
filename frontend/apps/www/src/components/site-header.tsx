@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { Button } from '@nubase/ui';
+import { Star } from 'lucide-react';
+import { HeaderAuth } from '@/components/header-auth';
 
 const NAV = [
   { href: '/features', label: 'Features' },
@@ -7,51 +8,60 @@ const NAV = [
   { href: '/docs', label: 'Docs' },
   { href: '/blog', label: 'Blog' },
   { href: '/news', label: 'News' },
-  { href: 'https://github.com/OtterMind/Nubase', label: 'GitHub' },
 ];
+
+const GH = 'https://github.com/OtterMind/Nubase';
+
+function Logo({ className = 'h-8 w-8' }: { className?: string }) {
+  return (
+    <span className="inline-flex items-center justify-center rounded-xl bg-[var(--nb-mint)] p-1.5 shadow-[0_8px_20px_-10px_rgba(20,180,137,0.8)]">
+      <svg viewBox="0 0 320 320" className={className} fill="none" aria-hidden="true">
+        <path
+          d="M104 240 V80 L216 240 V80"
+          fill="none"
+          stroke="#07382c"
+          strokeWidth="40"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <circle cx="216" cy="80" r="21" fill="none" stroke="#07382c" strokeWidth="11" />
+        <circle cx="104" cy="240" r="12" fill="#ffffff" />
+      </svg>
+    </span>
+  );
+}
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/80 backdrop-blur">
-      <div className="container flex h-14 items-center justify-between">
-        <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-          <svg viewBox="0 0 320 320" className="h-7 w-7" fill="none" aria-hidden="true">
-            <defs>
-              <linearGradient id="nbLogo" x1="96" y1="80" x2="224" y2="240" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#3DE3AF" />
-                <stop offset="1" stopColor="#10A074" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M104 240 V80 L216 240 V80"
-              fill="none"
-              stroke="url(#nbLogo)"
-              strokeWidth="40"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <circle cx="216" cy="80" r="21" fill="none" stroke="#3DE3AF" strokeWidth="11" />
-            <circle cx="104" cy="240" r="12" fill="#10A074" />
-          </svg>
+    <header className="sticky top-0 z-40 w-full border-b border-[var(--nb-line)] bg-white/85 backdrop-blur-md">
+      <div className="container flex h-16 items-center justify-between gap-4">
+        <Link href="/" className="flex items-center gap-2.5 text-[17px] font-display font-semibold tracking-tight text-[var(--nb-ink)]">
+          <Logo className="h-5 w-5" />
           nubase
         </Link>
-        <nav className="hidden gap-6 md:flex">
+
+        <nav className="hidden items-center gap-1 md:flex">
           {NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded-full px-3.5 py-2 text-sm font-medium text-[var(--nb-dim)] transition-colors hover:bg-[var(--nb-mint-soft)] hover:text-[var(--nb-ink)]"
             >
               {item.label}
             </Link>
           ))}
         </nav>
+
         <div className="flex items-center gap-2">
-          <Link href="/studio/projects">
-            <Button size="sm" variant="brand">
-              Open Studio
-            </Button>
+          <Link
+            href={GH}
+            target="_blank"
+            rel="noreferrer"
+            className="hidden items-center gap-1.5 rounded-full border border-[var(--nb-line)] bg-white px-3.5 py-2 text-sm font-semibold text-[var(--nb-ink)] transition-colors hover:border-[var(--nb-mint)] hover:bg-[var(--nb-mint-soft)] sm:inline-flex"
+          >
+            <Star className="h-4 w-4" /> Star
           </Link>
+          <HeaderAuth />
         </div>
       </div>
     </header>

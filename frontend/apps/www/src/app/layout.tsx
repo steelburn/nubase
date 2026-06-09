@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 // Self-hosted fonts (bundled via npm) — no runtime dependency on Google Fonts / gstatic.
-import '@fontsource-variable/bricolage-grotesque';
+import '@fontsource-variable/fredoka';
 import '@fontsource-variable/hanken-grotesk';
 import '@fontsource-variable/jetbrains-mono';
 import { SiteHeader } from '@/components/site-header';
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0B1222',
+  themeColor: '#34d3a6',
 };
 
 const orgLd = {
@@ -71,7 +71,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className="dark"
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-background font-sans antialiased">

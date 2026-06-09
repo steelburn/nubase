@@ -1,8 +1,9 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@nubase/ui';
-import { Table2, Terminal, Users, HardDrive } from 'lucide-react';
+import { Button, Card, CardHeader, CardTitle, CardDescription, CardContent } from '@nubase/ui';
+import { Table2, Terminal, Users, HardDrive, Copy, Check } from 'lucide-react';
 import { useSession, isProjectReady } from '@/lib/session';
 import { NotProvisioned } from '@/components/not-provisioned';
 import { API_BASE } from '@/lib/api';
@@ -20,6 +21,14 @@ export default function ProjectHome({ params }: { params: { ref: string } }) {
   const projectRef = useProjectRef(params.ref);
   const ready = isProjectReady(project);
   const name = project?.name ?? projectRef;
+
+  // In production the Studio bundle is built with NEXT_PUBLIC_NUBASE_API_URL="" so API calls are
+  // same-origin relative — which makes API_BASE an empty string. Show the real public origin instead.
+  const [origin, setOrigin] = useState('');
+  useEffect(() => {
+    if (typeof window !== 'undefined') setOrigin(window.location.origin);
+  }, []);
+  const apiUrl = API_BASE || origin;
 
   if (!ready) {
     return (
@@ -62,17 +71,9 @@ export default function ProjectHome({ params }: { params: { ref: string } }) {
             <CardTitle className="text-base">Connection</CardTitle>
             <CardDescription>Use this API URL and key in your client.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3 font-mono text-xs">
-            <div>
-              <p className="text-muted-foreground">URL</p>
-              <p className="rounded-md bg-muted px-3 py-2">{API_BASE}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">service_role key</p>
-              <p className="truncate rounded-md bg-muted px-3 py-2">
-                {project?.apikey ? `${project.apikey.slice(0, 16)}…${project.apikey.slice(-6)}` : '—'}
-              </p>
-            </div>
+          <CardContent className="space-y-3 text-xs">
+            <CopyField label="URL" value={apiUrl} mono />
+            <CopyField label="service_role key" value={project?.apikey ?? ''} mono masked />
           </CardContent>
         </Card>
         <Card>
@@ -83,6 +84,54 @@ export default function ProjectHome({ params }: { params: { ref: string } }) {
           <CardContent className="text-sm text-muted-foreground">No activity yet.</CardContent>
         </Card>
       </section>
+    </div>
+  );
+}
+
+/** A label + value row with a copy-to-clipboard button. `masked` shows a truncated preview. */
+function CopyField({
+  label,
+  value,
+  mono,
+  masked,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  masked?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked (e.g. insecure context) — silently ignore */
+    }
+  }
+
+  const display = !value ? '—' : masked ? `${value.slice(0, 16)}…${value.slice(-6)}` : value;
+
+  return (
+    <div>
+      <p className="text-muted-foreground">{label}</p>
+      <div className="flex items-center gap-2">
+        <p className={`min-w-0 flex-1 truncate rounded-md bg-muted px-3 py-2 ${mono ? 'font-mono' : ''}`}>
+          {display}
+        </p>
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={copy}
+          disabled={!value}
+          aria-label={`Copy ${label}`}
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </Button>
+      </div>
     </div>
   );
 }

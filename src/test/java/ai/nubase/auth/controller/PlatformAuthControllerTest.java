@@ -5,7 +5,10 @@ import ai.nubase.auth.dto.request.platform.PlatformSignUpRequest;
 import ai.nubase.auth.dto.response.platform.PlatformAuthResponse;
 import ai.nubase.auth.dto.response.platform.PlatformUserPayload;
 import ai.nubase.auth.exception.EmailAlreadyExistsException;
+import ai.nubase.auth.dto.request.platform.PlatformVerifyEmailRequest;
 import ai.nubase.auth.service.PlatformAuthService;
+import ai.nubase.auth.service.PlatformAuthService.AuthOutcome;
+import ai.nubase.auth.service.PlatformOAuthService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -28,17 +31,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PlatformAuthControllerTest {
 
     private PlatformAuthService platformAuthService;
+    private PlatformOAuthService platformOAuthService;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         platformAuthService = mock(PlatformAuthService.class);
-        mvc = mockMvc(new PlatformAuthController(platformAuthService));
+        platformOAuthService = mock(PlatformOAuthService.class);
+        mvc = mockMvc(new PlatformAuthController(platformAuthService, platformOAuthService));
     }
 
     @Test
     void publicConfigReturnsSignupFlag() throws Exception {
         when(platformAuthService.isSignupEnabled()).thenReturn(true);
+        // googleClientId() must not return null — publicConfig() puts it into Map.of().
+        when(platformOAuthService.googleClientId()).thenReturn("");
 
         mvc.perform(get("/auth/v1/platform/config"))
                 .andExpect(status().isOk())
@@ -47,7 +54,8 @@ class PlatformAuthControllerTest {
 
     @Test
     void signUpCreatesPlatformUserSession() throws Exception {
-        when(platformAuthService.signUp(any(PlatformSignUpRequest.class))).thenReturn(authResponse());
+        when(platformAuthService.signUp(any(PlatformSignUpRequest.class)))
+                .thenReturn(AuthOutcome.ok(authResponse()));
 
         mvc.perform(post("/auth/v1/platform/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -57,6 +65,31 @@ class PlatformAuthControllerTest {
                 .andExpect(jsonPath("$.token_type").value("bearer"))
                 .andExpect(jsonPath("$.user.email").value("admin@example.com"))
                 .andExpect(jsonPath("$.user.full_name").value("Admin User"));
+    }
+
+    @Test
+    void signUpReturnsPendingWhenVerificationRequired() throws Exception {
+        when(platformAuthService.signUp(any(PlatformSignUpRequest.class)))
+                .thenReturn(AuthOutcome.pending("admin@example.com"));
+
+        mvc.perform(post("/auth/v1/platform/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(signUpRequest("admin@example.com", "password123"))))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.verification_required").value(true))
+                .andExpect(jsonPath("$.email").value("admin@example.com"));
+    }
+
+    @Test
+    void verifyEmailIssuesSession() throws Exception {
+        when(platformAuthService.verifyEmail("admin@example.com", "123456")).thenReturn(authResponse());
+
+        mvc.perform(post("/auth/v1/platform/verify-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(verifyRequest("admin@example.com", "123456"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.access_token").value("platform-token"))
+                .andExpect(jsonPath("$.user.email").value("admin@example.com"));
     }
 
     @Test
@@ -85,7 +118,8 @@ class PlatformAuthControllerTest {
 
     @Test
     void tokenReturnsSessionForPasswordLogin() throws Exception {
-        when(platformAuthService.signIn(any(PlatformSignInRequest.class))).thenReturn(authResponse());
+        when(platformAuthService.signIn(any(PlatformSignInRequest.class)))
+                .thenReturn(AuthOutcome.ok(authResponse()));
 
         mvc.perform(post("/auth/v1/platform/token")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -140,6 +174,13 @@ class PlatformAuthControllerTest {
         PlatformSignInRequest request = new PlatformSignInRequest();
         request.setEmail(email);
         request.setPassword(password);
+        return request;
+    }
+
+    private PlatformVerifyEmailRequest verifyRequest(String email, String code) {
+        PlatformVerifyEmailRequest request = new PlatformVerifyEmailRequest();
+        request.setEmail(email);
+        request.setCode(code);
         return request;
     }
 

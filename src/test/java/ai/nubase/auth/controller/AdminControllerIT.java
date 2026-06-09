@@ -20,6 +20,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -45,6 +46,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
+// Fixtures sign accounts up directly; disable the email-OTP gate so signUp/signIn return a token.
+@TestPropertySource(properties = "nubase.platform.email-verification-enabled=false")
 @DisplayName("AdminController integration (dev metadata DB)")
 class AdminControllerIT {
 
@@ -76,7 +79,7 @@ class AdminControllerIT {
             reg.setEmail("admin@nubase.local");
             reg.setPassword("changeme123");
             reg.setFullName("Studio Admin");
-            PlatformAuthResponse res = platformAuthService.signUp(reg);
+            PlatformAuthResponse res = platformAuthService.signUp(reg).token();
             admin = platformUserRepository.findById(UUID.fromString(res.getUser().getId())).orElseThrow();
         }
         // Force role = super_admin for this fixture so the projects-list tests behave consistently.
@@ -93,7 +96,7 @@ class AdminControllerIT {
         reg.setEmail(reEmail);
         reg.setPassword("test-password-12345");
         reg.setFullName("Regular Tester");
-        PlatformAuthResponse rres = platformAuthService.signUp(reg);
+        PlatformAuthResponse rres = platformAuthService.signUp(reg).token();
         regularToken = rres.getAccessToken();
         regularUserId = rres.getUser().getId();
         tempPlatformUsers.add(UUID.fromString(regularUserId));
@@ -132,7 +135,7 @@ class AdminControllerIT {
         // If that fails, fall back to a forced re-set via service.
         try {
             req.setPassword("changeme123");
-            return platformAuthService.signIn(req).getAccessToken();
+            return platformAuthService.signIn(req).token().getAccessToken();
         } catch (Exception e) {
             // Test fixture safety: rotate the password to a known value, then sign in.
             String hashed = "changeme123";
@@ -140,7 +143,7 @@ class AdminControllerIT {
                     .encode(hashed));
             platformUserRepository.save(u);
             req.setPassword(hashed);
-            return platformAuthService.signIn(req).getAccessToken();
+            return platformAuthService.signIn(req).token().getAccessToken();
         }
     }
 

@@ -48,6 +48,10 @@ public class PlatformUser {
     @Column(name = "last_signed_in_at")
     private Instant lastSignedInAt;
 
+    /** When the account's email was confirmed via OTP (or OAuth). Null → not yet verified. */
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

@@ -164,15 +164,13 @@ public class DatabaseInitService {
 
             log.info("Creating database configuration: dbKey={}, dbName={}, appCode={}", dbKey, dbName, appCode);
 
-            // Check whether the dbKey already exists
+            // Reject a duplicate reference instead of silently returning the existing project — the
+            // caller (Studio "New project") surfaces this so the user can pick a different reference.
             DatabaseConfig config = databaseConfigRepository.findByDbKey(dbKey);
             if (config != null) {
-                return InitDatabaseResponse.success(
-                        config.getJwtSecret(),
-                        config.getServiceRoleToken(),
-                        config.getAuthenticatedToken(),
-                        config.getInitStatus(),
-                        executedSteps,
+                return InitDatabaseResponse.error(
+                        "A project with reference '" + dbKey + "' already exists. Choose a different reference.",
+                        "duplicate_reference",
                         System.currentTimeMillis() - startTime
                 );
             }

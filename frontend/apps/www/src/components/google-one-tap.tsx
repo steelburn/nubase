@@ -65,6 +65,30 @@ function loadGis(): Promise<void> {
   });
 }
 
+/**
+ * Read the platform token from the shared `nubase.session` localStorage (written by Studio's zustand
+ * persist store) and validate it. Returns true when the visitor already has a live session.
+ */
+async function hasValidSession(): Promise<boolean> {
+  let token: string | null = null;
+  try {
+    const raw = localStorage.getItem('nubase.session');
+    if (raw) token = (JSON.parse(raw)?.state?.platformKey as string | undefined) ?? null;
+  } catch {
+    token = null;
+  }
+  if (!token) return false;
+  try {
+    const res = await fetch('/auth/v1/platform/me', {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function GoogleOneTap() {
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +103,11 @@ export function GoogleOneTap() {
         return;
       }
       if (cancelled || !cfg.google_enabled || !cfg.google_client_id) return;
+
+      // Already signed in? www and Studio share the nubase.ai origin (and the `nubase.session`
+      // localStorage), so check for a valid existing session first and skip One Tap if found.
+      if (await hasValidSession()) return;
+      if (cancelled) return;
 
       try {
         await loadGis();

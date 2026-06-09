@@ -7,6 +7,7 @@ import ai.nubase.auth.dto.response.platform.PlatformUserPayload;
 import ai.nubase.auth.exception.EmailAlreadyExistsException;
 import ai.nubase.metadata.entity.PlatformUser;
 import ai.nubase.metadata.repository.PlatformUserRepository;
+import ai.nubase.platform.mail.PlatformEmailService.Purpose;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -42,6 +43,7 @@ public class PlatformAuthService {
 
     private final PlatformUserRepository platformUserRepository;
     private final PasswordService passwordService;
+    private final PlatformOtpService otpService;
 
     @Value("${nubase.platform.jwt-secret:}")
     private String configuredJwtSecret;
@@ -52,8 +54,29 @@ public class PlatformAuthService {
     @Value("${nubase.platform.signup-enabled:true}")
     private boolean signupEnabled;
 
+    @Value("${nubase.platform.email-verification-enabled:true}")
+    private boolean emailVerificationEnabled;
+
     public boolean isSignupEnabled() {
         return signupEnabled;
+    }
+
+    /**
+     * Result of a signup/sign-in attempt: either an issued session ({@code token}) or a request for
+     * the caller to complete email-code verification first ({@code pendingEmail}). Exactly one is set.
+     */
+    public record AuthOutcome(PlatformAuthResponse token, String pendingEmail) {
+        public boolean pending() {
+            return token == null;
+        }
+
+        public static AuthOutcome ok(PlatformAuthResponse token) {
+            return new AuthOutcome(token, null);
+        }
+
+        public static AuthOutcome pending(String email) {
+            return new AuthOutcome(null, email);
+        }
     }
 
     /** Fallback used when no secret is configured. Derived from a fixed string + a random run-id. */
@@ -94,16 +117,33 @@ public class PlatformAuthService {
     }
 
     @Transactional("metadataTransactionManager")
-    public PlatformAuthResponse signUp(PlatformSignUpRequest request) {
-        String email = request.getEmail().trim();
+    public AuthOutcome signUp(PlatformSignUpRequest request) {
+        String email = request.getEmail().trim().toLowerCase();
+
+        // An account that exists but never confirmed its email is an *unfinished* signup, not a real
+        // conflict — the email owner hasn't been proven yet. Treat a repeat signup as "continue": refresh
+        // the chosen credentials and re-send a fresh code. A verified (or OAuth / verification-off)
+        // account is a genuine duplicate and is rejected.
+        Optional<PlatformUser> existingUser = platformUserRepository.findByEmailIgnoreCase(email);
+        if (existingUser.isPresent()) {
+            PlatformUser user = existingUser.get();
+            if (!emailVerificationEnabled || user.getEmailVerifiedAt() != null) {
+                throw new EmailAlreadyExistsException("Platform account already exists for " + email);
+            }
+            user.setEncryptedPassword(passwordService.hashPassword(request.getPassword()));
+            if (request.getFullName() != null && !request.getFullName().isBlank()) {
+                user.setFullName(request.getFullName().trim());
+            }
+            platformUserRepository.save(user);
+            otpService.issue(email, Purpose.SIGNUP);
+            return AuthOutcome.pending(email);
+        }
+
         // The very first signup is always allowed so a fresh install can bootstrap its super admin,
         // even when sign-ups are disabled for the public.
         long existing = platformUserRepository.count();
         if (!signupEnabled && existing > 0L) {
             throw new IllegalStateException("Public sign-ups are disabled on this workspace.");
-        }
-        if (platformUserRepository.existsByEmailIgnoreCase(email)) {
-            throw new EmailAlreadyExistsException("Platform account already exists for " + email);
         }
 
         // First account on a fresh install becomes the bootstrap super admin.
@@ -111,19 +151,25 @@ public class PlatformAuthService {
         String role = existing == 0L ? PLATFORM_ROLE_SUPER_ADMIN : PLATFORM_ROLE_USER;
 
         PlatformUser user = PlatformUser.builder()
-                .email(email.toLowerCase())
+                .email(email)
                 .encryptedPassword(passwordService.hashPassword(request.getPassword()))
                 .fullName(request.getFullName())
                 .role(role)
                 .isActive(Boolean.TRUE)
+                .emailVerifiedAt(emailVerificationEnabled ? null : Instant.now())
                 .build();
 
         PlatformUser saved = platformUserRepository.save(user);
-        return buildResponse(saved);
+        if (!emailVerificationEnabled) {
+            return AuthOutcome.ok(buildResponse(saved));
+        }
+        // Require email confirmation before issuing a session.
+        otpService.issue(email, Purpose.SIGNUP);
+        return AuthOutcome.pending(email);
     }
 
     @Transactional("metadataTransactionManager")
-    public PlatformAuthResponse signIn(PlatformSignInRequest request) {
+    public AuthOutcome signIn(PlatformSignInRequest request) {
         String email = request.getEmail().trim();
         Optional<PlatformUser> maybe = platformUserRepository.findByEmailIgnoreCase(email);
         if (maybe.isEmpty()) {
@@ -136,9 +182,75 @@ public class PlatformAuthService {
         if (!passwordService.verifyPassword(request.getPassword(), user.getEncryptedPassword())) {
             throw new IllegalArgumentException("Invalid email or password");
         }
+        // Email verification is a one-time gate: an unverified account must confirm a code before its
+        // first session. Once verified (or when the feature is off), login is password-only.
+        if (emailVerificationEnabled && user.getEmailVerifiedAt() == null) {
+            otpService.issue(user.getEmail(), Purpose.LOGIN);
+            return AuthOutcome.pending(user.getEmail());
+        }
         user.setLastSignedInAt(Instant.now());
         platformUserRepository.save(user);
-        return buildResponse(user);
+        return AuthOutcome.ok(buildResponse(user));
+    }
+
+    /**
+     * Confirm a pending signup/login code and issue a session. The password was already proven in the
+     * step that triggered the send, so the code is the second factor.
+     */
+    @Transactional("metadataTransactionManager")
+    public PlatformAuthResponse verifyEmail(String rawEmail, String code) {
+        String email = rawEmail == null ? "" : rawEmail.trim().toLowerCase();
+        PlatformUser user = platformUserRepository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired code"));
+        if (!Boolean.TRUE.equals(user.getIsActive())) {
+            throw new IllegalArgumentException("Account is disabled");
+        }
+        // A pending code may have been issued for signup or for the login gate — accept either.
+        otpService.verifyAny(email, code, Purpose.SIGNUP, Purpose.LOGIN);
+        if (user.getEmailVerifiedAt() == null) {
+            user.setEmailVerifiedAt(Instant.now());
+        }
+        user.setLastSignedInAt(Instant.now());
+        PlatformUser saved = platformUserRepository.save(user);
+        return buildResponse(saved);
+    }
+
+    /** Re-send a verification code for an unverified account. No-op (silent) for unknown/verified emails. */
+    @Transactional("metadataTransactionManager")
+    public void resendVerification(String rawEmail) {
+        String email = rawEmail == null ? "" : rawEmail.trim().toLowerCase();
+        platformUserRepository.findByEmailIgnoreCase(email).ifPresent(user -> {
+            if (Boolean.TRUE.equals(user.getIsActive()) && user.getEmailVerifiedAt() == null) {
+                otpService.issue(email, Purpose.LOGIN);
+            }
+        });
+    }
+
+    /** Step 1 of password change: verify the current password, then email a confirmation code. */
+    @Transactional("metadataTransactionManager")
+    public void requestPasswordOtp(UUID userId, String currentPassword) {
+        PlatformUser user = requireUser(userId);
+        if (!passwordService.verifyPassword(currentPassword, user.getEncryptedPassword())) {
+            throw new IllegalArgumentException("Current password is incorrect");
+        }
+        otpService.issue(user.getEmail(), Purpose.PASSWORD_CHANGE);
+    }
+
+    /** Step 2 of password change: re-check the current password + the emailed code, then update. */
+    @Transactional("metadataTransactionManager")
+    public void changePassword(UUID userId, String currentPassword, String newPassword, String code) {
+        PlatformUser user = requireUser(userId);
+        if (!passwordService.verifyPassword(currentPassword, user.getEncryptedPassword())) {
+            throw new IllegalArgumentException("Current password is incorrect");
+        }
+        otpService.verify(user.getEmail(), Purpose.PASSWORD_CHANGE, code);
+        user.setEncryptedPassword(passwordService.hashPassword(newPassword));
+        platformUserRepository.save(user);
+    }
+
+    private PlatformUser requireUser(UUID userId) {
+        return platformUserRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Platform user not found"));
     }
 
     /**
@@ -162,6 +274,10 @@ public class PlatformAuthService {
                     && fullName != null && !fullName.isBlank()) {
                 user.setFullName(fullName.trim());
             }
+            // OAuth proves email ownership — backfill verification for existing password accounts.
+            if (user.getEmailVerifiedAt() == null) {
+                user.setEmailVerifiedAt(Instant.now());
+            }
         } else {
             long existing = platformUserRepository.count();
             if (!signupEnabled && existing > 0L) {
@@ -174,6 +290,8 @@ public class PlatformAuthService {
                     .fullName(fullName == null ? null : fullName.trim())
                     .role(role)
                     .isActive(Boolean.TRUE)
+                    // OAuth identities are email-verified by the provider — exempt from OTP.
+                    .emailVerifiedAt(Instant.now())
                     .build();
         }
         user.setLastSignedInAt(Instant.now());

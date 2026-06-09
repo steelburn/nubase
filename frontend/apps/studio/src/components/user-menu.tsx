@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, LogOut, User, FolderGit2, ShieldCheck, Settings } from 'lucide-react';
+import { LogOut, User, FolderGit2, ShieldCheck, Settings } from 'lucide-react';
 import { cn } from '@nubase/ui';
 import { useSession, isSuperAdmin } from '@/lib/session';
 import { ThemeToggle } from './theme-toggle';
@@ -48,15 +48,13 @@ export function UserMenu({ className }: { className?: string }) {
       <div ref={wrapRef} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex h-9 items-center gap-2 rounded-lg border border-border/80 bg-background px-2 py-1 text-sm shadow-sm transition-colors hover:bg-accent"
+        className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-[11px] font-bold uppercase shadow-sm transition-opacity hover:opacity-90"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label="Account menu"
+        title={user.email}
       >
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-[10px] font-bold uppercase">
-          {initials}
-        </span>
-        <span className="hidden max-w-[180px] truncate font-medium sm:inline">{user.email}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        {initials}
       </button>
 
       {open ? (
