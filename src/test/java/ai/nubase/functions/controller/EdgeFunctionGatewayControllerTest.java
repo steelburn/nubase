@@ -39,7 +39,7 @@ class EdgeFunctionGatewayControllerTest {
         request.setContent("abcd".getBytes(StandardCharsets.UTF_8));
 
         // Rendered as a 413 by EdgeFunctionExceptionHandler; the controller only throws.
-        assertThatThrownBy(() -> controller.invoke(request))
+        assertThatThrownBy(() -> controller.invoke("hello", request))
                 .isInstanceOf(EdgeFunctionException.class)
                 .satisfies(e -> {
                     assertThat(((EdgeFunctionException) e).status()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
@@ -66,7 +66,7 @@ class EdgeFunctionGatewayControllerTest {
                         null
                 ));
 
-        ResponseEntity<byte[]> response = controller.invoke(request);
+        ResponseEntity<byte[]> response = controller.invoke("hello", request);
 
         ArgumentCaptor<EdgeFunctionInvocationCommand> captor = ArgumentCaptor.forClass(EdgeFunctionInvocationCommand.class);
         verify(invocationService).invoke(eq("hello"), captor.capture());

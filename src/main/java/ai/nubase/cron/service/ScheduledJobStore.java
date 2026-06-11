@@ -43,6 +43,11 @@ public class ScheduledJobStore {
         return jobRepository.complete(jobId, expectedNextRunAt, status, nextRunAt) == 1;
     }
 
+    @Transactional("metadataTransactionManager")
+    public boolean releaseLock(UUID jobId, Instant lockToken, String status) {
+        return jobRepository.releaseLock(jobId, lockToken, status) == 1;
+    }
+
     // REQUIRES_NEW for symmetry with the functions invocation log: the run row must
     // survive whatever the caller does with the exception afterwards.
     @Transactional(transactionManager = "metadataTransactionManager", propagation = Propagation.REQUIRES_NEW)

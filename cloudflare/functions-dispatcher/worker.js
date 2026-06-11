@@ -96,14 +96,27 @@ async function sha256Hex(buffer) {
   return hex(digest);
 }
 
+// The dispatcher secret is constant for the isolate's lifetime; cache the
+// imported CryptoKey instead of re-running the key schedule on every request.
+let cachedHmacKey = null;
+let cachedHmacSecret = null;
+
+async function hmacKey(secret) {
+  if (cachedHmacKey === null || cachedHmacSecret !== secret) {
+    cachedHmacKey = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    cachedHmacSecret = secret;
+  }
+  return cachedHmacKey;
+}
+
 async function hmacHex(secret, payload) {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
+  const key = await hmacKey(secret);
   return hex(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)));
 }
 

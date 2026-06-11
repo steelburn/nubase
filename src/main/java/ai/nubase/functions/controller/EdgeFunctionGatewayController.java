@@ -40,9 +40,15 @@ public class EdgeFunctionGatewayController {
 
     // EdgeFunctionException is rendered by EdgeFunctionExceptionHandler — no
     // error-shaping here, so the JSON contract has a single owner.
+    // The slug comes from Spring's own pattern binding rather than hand-parsing
+    // request.getRequestURI(): the URI form breaks under a servlet context-path
+    // (the hard-coded prefix no longer matches) and disagrees with the mapping
+    // on percent-encoded paths.
     @RequestMapping("/functions/v1/{functionSlug}/**")
-    public ResponseEntity<byte[]> invoke(HttpServletRequest request) throws IOException {
-        String functionSlug = extractFunctionSlug(request);
+    public ResponseEntity<byte[]> invoke(
+            @org.springframework.web.bind.annotation.PathVariable("functionSlug") String functionSlug,
+            HttpServletRequest request
+    ) throws IOException {
         String suffix = extractSuffix(request, functionSlug);
         byte[] body = readBody(request);
         EdgeFunctionInvocationResponse response = invocationService.invoke(functionSlug,
@@ -78,14 +84,6 @@ public class EdgeFunctionGatewayController {
         }
         HttpStatus status = HttpStatus.resolve(response.statusCode());
         return new ResponseEntity<>(response.body(), headers, status == null ? HttpStatus.BAD_GATEWAY : status);
-    }
-
-    private String extractFunctionSlug(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        String prefix = "/functions/v1/";
-        String rest = path.startsWith(prefix) ? path.substring(prefix.length()) : path;
-        int slash = rest.indexOf('/');
-        return slash >= 0 ? rest.substring(0, slash) : rest;
     }
 
     private String extractSuffix(HttpServletRequest request, String functionSlug) {

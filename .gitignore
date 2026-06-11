@@ -96,3 +96,5 @@ script/deploy/init_apisix.sh
 script/deploy/www-deploy.sh
 script/deploy/apisix-www-routes.sh
 /script/deploy/nubase-www.service
+cloudflare/functions-dispatcher/wrangler.toml
+cloudflare/functions-dispatcher/.wrangler/

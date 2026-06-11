@@ -134,6 +134,9 @@ public class EdgeFunctionAdminService {
             }
             secretRepository.save(secret);
         }
+        // Same-instance readers (the local-executor invoke path) must see the new
+        // values immediately; other instances converge within the cache TTL.
+        secretEnv.evict(fn.getId());
         syncSecretsToActiveDeployment(fn);
         return secretRepository.findByFunctionOrderByNameAsc(fn);
     }
