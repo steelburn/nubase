@@ -281,6 +281,19 @@ class CloudflareEdgeFunctionExecutorTest {
         }
     }
 
+    @Test
+    void bindUserDefaultHandlesDollarSignIdentifiers() {
+        EdgeFunctionExecutorProperties props = props("http://127.0.0.1:1");
+        var executor = new CloudflareEdgeFunctionExecutor(props, new ObjectMapper());
+
+        // '$' is a legal JS identifier char (esbuild/minified output); it must not be
+        // interpreted as a regex group reference in the replacement.
+        assertThat(executor.bindUserDefault("var handler$ = {};\nexport { handler$ as default };"))
+                .contains("const __userDefault = handler$;");
+        assertThat(executor.bindUserDefault("var fn$1 = {};\nexport { fn$1 as default };"))
+                .contains("const __userDefault = fn$1;");
+    }
+
     private EdgeFunctionDeploymentRequest deployRequest(String projectRef, String slug) {
         return deployRequest(projectRef, slug, "index.js",
                 bundle("index.js", "export default { async fetch() { return new Response('ok') } };"));

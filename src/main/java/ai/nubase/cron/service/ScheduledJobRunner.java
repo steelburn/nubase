@@ -120,7 +120,7 @@ public class ScheduledJobRunner {
                     .startedAt(Instant.now())
                     .finishedAt(Instant.now())
                     .status(ScheduledJobRun.STATUS_FAILED)
-                    .errorMessage(truncate("EXECUTOR_REJECTED: " + e, 1000))
+                    .errorMessage(ai.nubase.common.util.Texts.truncate("EXECUTOR_REJECTED: " + e, 1000))
                     .build());
         } catch (Exception recordError) {
             log.warn("Failed to record rejected scheduled job run: job={}, error={}", job.getName(), recordError.toString());
@@ -175,7 +175,7 @@ public class ScheduledJobRunner {
         } catch (Exception e) {
             log.warn("Scheduled job failed: project={}, job={}, error={}",
                     job.getProjectRef(), job.getName(), e.toString());
-            outcome = RunOutcome.failure(null, truncate(e.toString(), 1000));
+            outcome = RunOutcome.failure(null, ai.nubase.common.util.Texts.truncate(e.toString(), 1000));
         }
 
         String status = outcome.success() ? ScheduledJobRun.STATUS_SUCCESS : ScheduledJobRun.STATUS_FAILED;
@@ -190,7 +190,7 @@ public class ScheduledJobRunner {
                     .finishedAt(Instant.now())
                     .status(status)
                     .result(outcome.result())
-                    .errorMessage(truncate(outcome.errorMessage(), 1000))
+                    .errorMessage(ai.nubase.common.util.Texts.truncate(outcome.errorMessage(), 1000))
                     .build());
         } catch (Exception e) {
             log.warn("Failed to record scheduled job run: job={}, error={}", job.getName(), e.toString());
@@ -249,8 +249,4 @@ public class ScheduledJobRunner {
         return doubled.compareTo(MIN_LOCK) < 0 ? MIN_LOCK : doubled;
     }
 
-    private String truncate(String value, int max) {
-        if (value == null || value.length() <= max) return value;
-        return value.substring(0, max);
-    }
 }

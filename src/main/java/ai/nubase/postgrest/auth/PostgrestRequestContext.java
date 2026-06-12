@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -31,15 +32,13 @@ public class PostgrestRequestContext {
 
     public void applySynthetic(String role, String path, String method) {
         setDatabaseRole(role);
-        try {
-            setGucVariable("request.jwt.claims", "{}");
-            setGucVariable("request.headers", "{}");
-            setGucVariable("request.cookies", "{}");
-            setGucVariable("request.path", path == null ? "" : path);
-            setGucVariable("request.method", method == null ? "POST" : method);
-        } catch (Exception e) {
-            log.warn("Failed to set synthetic PostgREST request context: {}", e.getMessage());
-        }
+        Map<String, String> gucs = new LinkedHashMap<>();
+        gucs.put("request.jwt.claims", "{}");
+        gucs.put("request.headers", "{}");
+        gucs.put("request.cookies", "{}");
+        gucs.put("request.path", path == null ? "" : path);
+        gucs.put("request.method", method == null ? "POST" : method);
+        setGucVariables(gucs);
     }
 
     public void resetDatabaseRole() {
@@ -54,7 +53,7 @@ public class PostgrestRequestContext {
     private void setDatabaseRole(String role) {
         // The tenant connection runs as the table OWNER (db_user), which bypasses RLS.
         // Fail closed if the requested role cannot be established.
-        if (role == null || !role.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
+        if (role == null || !role.matches(ai.nubase.common.util.IdentifierPatterns.SQL_IDENTIFIER)) {
             throw new IllegalStateException("Refusing to set an invalid database role: " + role);
         }
         try {
@@ -69,8 +68,9 @@ public class PostgrestRequestContext {
 
     private void setRequestContext(HttpServletRequest request, Claims claims) {
         try {
+            Map<String, String> gucs = new LinkedHashMap<>();
             if (claims != null) {
-                setGucVariable("request.jwt.claims", objectMapper.writeValueAsString(claims));
+                gucs.put("request.jwt.claims", objectMapper.writeValueAsString(claims));
             }
 
             Map<String, String> headers = new HashMap<>();
@@ -79,7 +79,7 @@ public class PostgrestRequestContext {
                 String headerName = headerNames.nextElement();
                 headers.put(headerName.toLowerCase(), request.getHeader(headerName));
             }
-            setGucVariable("request.headers", objectMapper.writeValueAsString(headers));
+            gucs.put("request.headers", objectMapper.writeValueAsString(headers));
 
             Map<String, String> cookies = new HashMap<>();
             if (request.getCookies() != null) {
@@ -87,20 +87,33 @@ public class PostgrestRequestContext {
                     cookies.put(cookie.getName(), cookie.getValue());
                 }
             }
-            setGucVariable("request.cookies", objectMapper.writeValueAsString(cookies));
-            setGucVariable("request.path", request.getRequestURI());
-            setGucVariable("request.method", request.getMethod());
+            gucs.put("request.cookies", objectMapper.writeValueAsString(cookies));
+            gucs.put("request.path", request.getRequestURI());
+            gucs.put("request.method", request.getMethod());
+            setGucVariables(gucs);
         } catch (Exception e) {
             log.warn("Failed to set request context: {}", e.getMessage());
         }
     }
 
-    private void setGucVariable(String name, String value) {
+    // All GUCs go in ONE statement: this runs on every /rest/v1 request and every
+    // cron db_function run, and five separate round-trips of constant-shaped
+    // set_config chatter is pure waste. Keys are internal constants; values are
+    // quote-escaped literals.
+    private void setGucVariables(Map<String, String> gucs) {
+        if (gucs.isEmpty()) return;
+        StringBuilder sql = new StringBuilder("SELECT ");
+        boolean first = true;
+        for (Map.Entry<String, String> entry : gucs.entrySet()) {
+            if (!first) sql.append(", ");
+            first = false;
+            sql.append("set_config('").append(entry.getKey()).append("', '")
+                    .append(entry.getValue().replace("'", "''")).append("', true)");
+        }
         try {
-            String escapedValue = value.replace("'", "''");
-            jdbcTemplate.execute(String.format("SELECT set_config('%s', '%s', true)", name, escapedValue));
+            jdbcTemplate.execute(sql.toString());
         } catch (Exception e) {
-            log.warn("Failed to set GUC variable {}: {}", name, e.getMessage());
+            log.warn("Failed to set GUC variables {}: {}", gucs.keySet(), e.getMessage());
         }
     }
 

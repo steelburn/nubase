@@ -16,7 +16,10 @@ plane: jobs are stored in the metadata DB and claimed with a row-level
 compare-and-set (`next_run_at` + `locked_until`), which makes any number of Nubase
 instances safe to run concurrently without an external lock service. A job still
 running when its next occurrence comes due is not re-entered; missed occurrences
-coalesce into one delayed run.
+coalesce into one delayed run. A claim that waits in the execution queue past its
+own lock window is not executed either — it is recorded in run history as
+`skipped` (`QUEUE_WAIT_EXCEEDED_LOCK`) and the occurrence passes to whichever
+instance holds the current lock, so a job never overlaps with itself.
 
 ## Why "call one named function" instead of arbitrary SQL
 

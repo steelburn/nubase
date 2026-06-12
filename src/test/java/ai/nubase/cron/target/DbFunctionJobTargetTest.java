@@ -67,8 +67,7 @@ class DbFunctionJobTargetTest {
         QueryPlan plan = QueryPlan.builder().build();
         when(queryPlanner.plan(any())).thenReturn(plan);
         when(queryExecutor.buildSqlForPlan(plan, "{\"days\":7}")).thenReturn("SELECT tenant_app1.\"refresh_stats\"(days => 7)");
-        when(jdbcTemplate.query(any(PreparedStatementCreator.class), any(RowMapper.class)))
-                .thenReturn(List.of(Map.of("refresh_stats", 42)));
+        stubQueryWithSingleRow("refresh_stats", 42);
 
         RunOutcome outcome = target.execute(job("refresh_stats", "{\"days\":7}"));
 
@@ -90,7 +89,7 @@ class DbFunctionJobTargetTest {
 
         assertThat(outcome.success()).isFalse();
         assertThat(outcome.errorMessage()).contains("INVALID_DB_FUNCTION");
-        verify(jdbcTemplate, never()).query(any(PreparedStatementCreator.class), any(RowMapper.class));
+        verify(jdbcTemplate, never()).query(any(PreparedStatementCreator.class), any(org.springframework.jdbc.core.ResultSetExtractor.class));
         verify(queryPlanner, never()).plan(any());
     }
 
@@ -98,12 +97,40 @@ class DbFunctionJobTargetTest {
     void emptyResultIsStillASuccess() throws Exception {
         lenient().when(queryExecutor.buildSqlForPlan(any(), any())).thenReturn("SELECT fn()");
         when(queryPlanner.plan(any())).thenReturn(QueryPlan.builder().build());
-        when(jdbcTemplate.query(any(PreparedStatementCreator.class), any(RowMapper.class))).thenReturn(List.of());
+        stubQueryWithEmptyResult();
 
         RunOutcome outcome = target.execute(job("fn", null));
 
         assertThat(outcome.success()).isTrue();
         assertThat(outcome.result()).isEqualTo("0 rows");
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void stubQueryWithSingleRow(String column, Object value) {
+        when(jdbcTemplate.query(any(PreparedStatementCreator.class), any(org.springframework.jdbc.core.ResultSetExtractor.class)))
+                .thenAnswer(inv -> {
+                    org.springframework.jdbc.core.ResultSetExtractor extractor = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    java.sql.ResultSetMetaData md = org.mockito.Mockito.mock(java.sql.ResultSetMetaData.class);
+                    org.mockito.Mockito.when(rs.getMetaData()).thenReturn(md);
+                    org.mockito.Mockito.when(md.getColumnCount()).thenReturn(1);
+                    org.mockito.Mockito.lenient().when(md.getColumnLabel(1)).thenReturn(column);
+                    org.mockito.Mockito.lenient().when(md.getColumnName(1)).thenReturn(column);
+                    org.mockito.Mockito.when(rs.getObject(1)).thenReturn(value);
+                    org.mockito.Mockito.when(rs.next()).thenReturn(true, false);
+                    return extractor.extractData(rs);
+                });
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void stubQueryWithEmptyResult() {
+        when(jdbcTemplate.query(any(PreparedStatementCreator.class), any(org.springframework.jdbc.core.ResultSetExtractor.class)))
+                .thenAnswer(inv -> {
+                    org.springframework.jdbc.core.ResultSetExtractor extractor = inv.getArgument(1);
+                    java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+                    org.mockito.Mockito.when(rs.next()).thenReturn(false);
+                    return extractor.extractData(rs);
+                });
     }
 
     private ScheduledJob job(String functionName, String argsJson) {

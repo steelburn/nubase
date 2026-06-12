@@ -1,5 +1,7 @@
 package ai.nubase.functions.util;
 
+import ai.nubase.common.util.IdentifierPatterns;
+
 import java.util.Locale;
 
 public final class EdgeFunctionNames {
@@ -17,16 +19,16 @@ public final class EdgeFunctionNames {
                 .replaceAll("^-+", "")
                 .replaceAll("-+$", "");
         if (!isValidSlug(slug)) {
-            throw new IllegalArgumentException("Function slug must match ^[a-zA-Z0-9_-]{1,128}$");
+            throw new IllegalArgumentException("Function slug must match " + IdentifierPatterns.RESOURCE_NAME);
         }
         return slug;
     }
 
     public static boolean isValidSlug(String value) {
-        return value != null && value.matches("^[a-zA-Z0-9_-]{1,128}$");
+        return value != null && value.matches(IdentifierPatterns.RESOURCE_NAME);
     }
 
     public static boolean isValidSecretName(String value) {
-        return value != null && value.matches("^[A-Z_][A-Z0-9_]{0,127}$");
+        return value != null && value.matches(IdentifierPatterns.SECRET_NAME);
     }
 }

@@ -182,13 +182,13 @@ public class MultiDatabaseConfiguration implements CachingConfigurer {
     /**
      * Pure-JDBC transaction manager bound to the same routing DataSource.
      *
-     * <p>The primary {@link JpaTransactionManager} does NOT bind its connection to the
-     * {@code DataSourceUtils} key in a way that lets plain {@code JdbcTemplate} calls join
-     * the same transaction reliably (especially when no EntityManager is touched in the
-     * method). The mem module is JdbcTemplate-only, so we expose this bean and annotate
-     * mem service methods with {@code @Transactional(transactionManager = "memJdbcTransactionManager")}
-     * to get real transactional semantics — atomic ADD/UPDATE/DELETE, real rollback on
-     * mid-flight LLM failure.
+     * <p>Note: the primary {@link JpaTransactionManager} DOES expose its connection to
+     * plain {@code JdbcTemplate} calls (the EMF is built with this DataSource, so a
+     * ConnectionHolder is bound for it at transaction begin — this is what makes the
+     * {@code SET LOCAL ROLE}/RLS path on /rest/v1 and cron work). The mem module uses
+     * this dedicated {@link org.springframework.jdbc.datasource.DataSourceTransactionManager}
+     * anyway because it is JdbcTemplate-only: a JDBC-native manager avoids paying for an
+     * EntityManager it never touches and makes the transaction boundary explicit.
      *
      * <p>Routes per-tenant via {@link RoutingDataSource}; the tenant is locked in at
      * transaction begin (when the filter has already set {@code MultiTenancyContext}).

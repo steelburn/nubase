@@ -1,3 +1,4 @@
+import { requiredString } from './args.js';
 import type { BridgeConfig } from './config.js';
 import { classifySql, countStatements } from './sql-risk.js';
 
@@ -298,6 +299,14 @@ export class NubaseClient {
     });
   }
 
+  // Gated variant for the MCP tool surface: invoking a deployed function runs
+  // arbitrary code with the service_role key, so it sits behind the same
+  // admin-write gate as the other mutating tools. The CLI invoke path calls
+  // functionsInvoke directly and stays ungated.
+  functionsInvokeGuarded(args: Record<string, unknown>) {
+    return this.guardedWrite('invoke edge function', () => this.functionsInvoke(args));
+  }
+
   // --- Scheduled jobs control plane (/cron/admin/v1) ----------------------
 
   cronListJobs() {
@@ -581,13 +590,6 @@ function cronJobOptionalFields(args: Record<string, unknown>) {
     timeoutSeconds: typeof args.timeoutSeconds === 'number' ? args.timeoutSeconds : undefined,
     enabled: typeof args.enabled === 'boolean' ? args.enabled : undefined,
   };
-}
-
-function requiredString(value: unknown, name: string) {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`${name} is required`);
-  }
-  return value;
 }
 
 // Postgres string literal with single quotes doubled — safe for arbitrary text.

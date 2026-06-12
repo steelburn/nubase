@@ -103,7 +103,7 @@ public class EdgeFunctionInvocationService {
                         .durationMs(durationMs)
                         .executorProvider(executor.provider())
                         .errorCode(errorCode)
-                        .errorMessage(truncate(errorMessage, 1000))
+                        .errorMessage(ai.nubase.common.util.Texts.truncate(errorMessage, 1000))
                         .callerRole(command.callerRole())
                         .callerUserId(command.callerUserId())
                         .build());
@@ -144,8 +144,4 @@ public class EdgeFunctionInvocationService {
         }
     }
 
-    private String truncate(String value, int max) {
-        if (value == null || value.length() <= max) return value;
-        return value.substring(0, max);
-    }
 }

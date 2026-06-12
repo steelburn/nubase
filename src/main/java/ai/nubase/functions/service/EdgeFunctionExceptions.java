@@ -1,5 +1,6 @@
 package ai.nubase.functions.service;
 
+import ai.nubase.common.web.ApiStatusException;
 import org.springframework.http.HttpStatus;
 
 public final class EdgeFunctionExceptions {
@@ -7,22 +8,10 @@ public final class EdgeFunctionExceptions {
     private EdgeFunctionExceptions() {
     }
 
-    public static class EdgeFunctionException extends RuntimeException {
-        private final HttpStatus status;
-        private final String code;
+    public static class EdgeFunctionException extends ApiStatusException {
 
         public EdgeFunctionException(HttpStatus status, String code, String message) {
-            super(message);
-            this.status = status;
-            this.code = code;
-        }
-
-        public HttpStatus status() {
-            return status;
-        }
-
-        public String code() {
-            return code;
+            super(status, code, message);
         }
     }
 }

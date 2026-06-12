@@ -48,7 +48,12 @@ public class EdgeFunctionDeploymentRecorder {
                 lastConflict = e;
             }
         }
-        throw lastConflict;
+        // Rendered by the module's advice as a structured 409 instead of leaking the
+        // raw constraint violation as an unmapped 500.
+        EdgeFunctionException conflict = new EdgeFunctionException(HttpStatus.CONFLICT, "DEPLOY_CONFLICT",
+                "Concurrent deployments raced on the version number; retry the deploy");
+        conflict.initCause(lastConflict);
+        throw conflict;
     }
 
     private TransactionTemplate transactionTemplate() {

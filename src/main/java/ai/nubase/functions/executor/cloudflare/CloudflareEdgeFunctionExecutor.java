@@ -319,14 +319,17 @@ public class CloudflareEdgeFunctionExecutor extends AbstractHttpEdgeFunctionExec
         );
     }
 
-    private String bindUserDefault(String source) {
+    String bindUserDefault(String source) {
         String transformed = source.replaceFirst("export\\s+default\\s+", "const __userDefault = ");
         if (!transformed.equals(source)) return transformed;
 
         Pattern exportedDefault = Pattern.compile("export\\s*\\{\\s*([A-Za-z_$][A-Za-z0-9_$]*)\\s+as\\s+default\\s*}\\s*;?");
         Matcher matcher = exportedDefault.matcher(source);
         if (matcher.find()) {
-            return matcher.replaceFirst("const __userDefault = " + matcher.group(1) + ";");
+            // The identifier may legally contain '$' (esbuild/minified output like
+            // handler$ or fn$1), which replaceFirst would treat as a group reference.
+            return matcher.replaceFirst(
+                    Matcher.quoteReplacement("const __userDefault = " + matcher.group(1) + ";"));
         }
 
         return source + "\nconst __userDefault = globalThis.default;\n";

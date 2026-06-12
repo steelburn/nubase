@@ -14,8 +14,8 @@ import java.util.UUID;
 
 public final class EdgeFunctionDtos {
 
-    public static final String SLUG_PATTERN = "^[a-zA-Z0-9_-]{1,128}$";
-    public static final String SECRET_NAME_PATTERN = "^[A-Z_][A-Z0-9_]{0,127}$";
+    public static final String SLUG_PATTERN = ai.nubase.common.util.IdentifierPatterns.RESOURCE_NAME;
+    public static final String SECRET_NAME_PATTERN = ai.nubase.common.util.IdentifierPatterns.SECRET_NAME;
 
     private EdgeFunctionDtos() {
     }

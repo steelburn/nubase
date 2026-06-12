@@ -6,6 +6,8 @@ import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Label }
 import { apiFetch, API_BASE, type ApiError } from '@/lib/api';
 import { isProjectReady, useSession } from '@/lib/session';
 import { NotProvisioned } from '@/components/not-provisioned';
+import { InfoTile } from '@/components/info-tile';
+import { formatDate } from '@/lib/format';
 import { useProjectRef } from '@/lib/route-params';
 
 interface ScheduledJob {
@@ -416,10 +418,10 @@ function CronInner({ projectRef }: { projectRef: string }) {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
-                    <Info label="Schedule" value={current.cronExpression} mono />
-                    <Info label="Next run" value={formatDate(current.nextRunAt)} />
-                    <Info label="Last run" value={formatDate(current.lastRunAt)} />
-                    <Info label="Timeout" value={current.timeoutSeconds != null ? `${current.timeoutSeconds}s` : '-'} />
+                    <InfoTile label="Schedule" value={current.cronExpression} mono />
+                    <InfoTile label="Next run" value={formatDate(current.nextRunAt)} />
+                    <InfoTile label="Last run" value={formatDate(current.lastRunAt)} />
+                    <InfoTile label="Timeout" value={current.timeoutSeconds != null ? `${current.timeoutSeconds}s` : '-'} />
                   </div>
                 </CardContent>
               </Card>
@@ -431,16 +433,16 @@ function CronInner({ projectRef }: { projectRef: string }) {
                 <CardContent>
                   {current.targetType === 'edge_function' ? (
                     <div className="grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
-                      <Info label="Type" value="Edge function" />
-                      <Info label="Function" value={current.functionSlug ?? '-'} mono />
-                      <Info label="Request" value={`${current.httpMethod ?? 'POST'} ${current.requestPath || '/'}`} mono />
-                      <Info label="Body" value={current.requestBody || '-'} mono />
+                      <InfoTile label="Type" value="Edge function" />
+                      <InfoTile label="Function" value={current.functionSlug ?? '-'} mono />
+                      <InfoTile label="Request" value={`${current.httpMethod ?? 'POST'} ${current.requestPath || '/'}`} mono />
+                      <InfoTile label="Body" value={current.requestBody || '-'} mono />
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
-                      <Info label="Type" value="Database function" />
-                      <Info label="Function" value={current.dbFunctionName ?? '-'} mono />
-                      <Info label="Args" value={current.dbFunctionArgs || '-'} mono />
+                      <InfoTile label="Type" value="Database function" />
+                      <InfoTile label="Function" value={current.dbFunctionName ?? '-'} mono />
+                      <InfoTile label="Args" value={current.dbFunctionArgs || '-'} mono />
                     </div>
                   )}
                 </CardContent>
@@ -525,20 +527,6 @@ function StatusBadge({ status }: { status?: string | null }) {
   if (!status) return <Badge variant="outline">never run</Badge>;
   if (status === 'success') return <Badge variant="success">{status}</Badge>;
   return <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">{status}</Badge>;
-}
-
-function Info({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="rounded-lg border border-border bg-background p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={'mt-2 truncate text-sm ' + (mono ? 'font-mono' : 'font-medium')}>{value}</div>
-    </div>
-  );
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  return new Date(value).toLocaleString();
 }
 
 function formatDuration(start?: string | null, end?: string | null) {

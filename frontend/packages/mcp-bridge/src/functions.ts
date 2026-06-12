@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { intOption, required } from './args.js';
 import type { BridgeConfig } from './config.js';
 import { NubaseClient } from './nubase-client.js';
 
@@ -61,23 +62,6 @@ export function parseFunctionArgs(args: string[]) {
   return { positional, options: out };
 }
 
-// Strict integer flag parsing shared by all CLI namespaces. `Number('600s')`
-// is NaN, which survives a `typeof x === 'number'` filter and serializes to
-// null — the server then silently applies its default. Reject loudly instead.
-export function intOption(
-  options: Record<string, string | boolean>,
-  name: string,
-  { min, max }: { min?: number; max?: number } = {}
-): number | undefined {
-  const value = options[name];
-  if (value === undefined) return undefined;
-  const parsed = typeof value === 'string' && /^-?\d+$/.test(value.trim()) ? Number(value.trim()) : NaN;
-  if (!Number.isSafeInteger(parsed)) throw new Error(`--${name} must be an integer`);
-  if (min !== undefined && parsed < min) throw new Error(`--${name} must be an integer >= ${min}`);
-  if (max !== undefined && parsed > max) throw new Error(`--${name} must be an integer <= ${max}`);
-  return parsed;
-}
-
 async function functionsNew(args: string[]) {
   const { positional } = parseFunctionArgs(args);
   const slug = required(positional[0], 'function name');
@@ -111,21 +95,25 @@ async function functionsDeploy(args: string[], client: NubaseClient) {
   const bundle = (await shouldBundle(dir, options, entrypoint))
     ? await bundleEntrypoint(dir, entrypoint)
     : await bundleDirectory(dir);
-  const metadata = {
-    name: typeof manifest.name === 'string' && manifest.name.trim() ? manifest.name.trim() : slug,
+  // Display name: only the manifest may set it. On redeploy we must not send a
+  // defaulted name, or a name edited in Studio would silently be reset to slug.
+  const manifestName = typeof manifest.name === 'string' && manifest.name.trim() ? manifest.name.trim() : undefined;
+  const metadata: Record<string, unknown> = {
     slug,
     verifyJwt: options['no-verify-jwt'] === true ? false : booleanOption(manifest.verifyJwt),
     privileged: options.privileged === true ? true : undefined,
     entrypoint,
   };
+  if (manifestName) metadata.name = manifestName;
+  // Update-first: redeploys are the common case, so apply metadata via PATCH
+  // and only fall back to create when the function does not exist yet.
   try {
-    await client.functionsCreate(metadata);
+    await client.functionsUpdate(metadata);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (!/FUNCTION_EXISTS|409|already exists/i.test(message)) throw err;
-    if (typeof client.functionsUpdate === 'function') {
-      await client.functionsUpdate(metadata);
-    }
+    if (!/FUNCTION_NOT_FOUND|404|not found|does not exist/i.test(message)) throw err;
+    // First deploy: create requires a name, defaulting to the slug.
+    await client.functionsCreate({ ...metadata, name: manifestName ?? slug });
   }
   return client.functionsDeploy({
     slug,
@@ -299,11 +287,6 @@ async function listFiles(dir: string): Promise<string[]> {
     }
   }
   return out;
-}
-
-function required(value: string | undefined, name: string) {
-  if (!value) throw new Error(`${name} is required`);
-  return value;
 }
 
 function defaultFunctionSource() {

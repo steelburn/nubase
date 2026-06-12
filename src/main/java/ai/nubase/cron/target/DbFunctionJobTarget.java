@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.sql.PreparedStatement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -42,8 +43,9 @@ import java.util.regex.Pattern;
 @ConditionalOnProperty(value = "nubase.cron.enabled", havingValue = "true", matchIfMissing = true)
 public class DbFunctionJobTarget implements ScheduledJobTarget {
 
-    public static final Pattern FUNCTION_NAME = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]{0,127}$");
+    public static final Pattern FUNCTION_NAME = Pattern.compile(ai.nubase.common.util.IdentifierPatterns.SQL_IDENTIFIER);
     private static final int RESULT_SNIPPET_MAX = 2000;
+    private static final int SNIPPET_ROW_LIMIT = 20;
 
     private final QueryPlanner queryPlanner;
     private final QueryExecutor queryExecutor;
@@ -84,17 +86,35 @@ public class DbFunctionJobTarget implements ScheduledJobTarget {
         int timeoutSeconds = job.getTimeoutSeconds() == null
                 ? properties.getDefaultTimeoutSeconds()
                 : job.getTimeoutSeconds();
-        List<Map<String, Object>> rows = jdbcTemplate.query(con -> {
+        // Only the run-history snippet survives this call, so never materialize the
+        // full result set: a function returning a large SETOF would otherwise be
+        // buffered entirely into heap just to keep 2KB of it.
+        BoundedResult result = jdbcTemplate.query(con -> {
             PreparedStatement ps = con.prepareStatement(sql);
             if (timeoutSeconds > 0) {
                 // The Postgres driver enforces this by cancelling the statement
                 // server-side, so a runaway function is actually stopped.
                 ps.setQueryTimeout(timeoutSeconds);
             }
+            ps.setFetchSize(SNIPPET_ROW_LIMIT);
             return ps;
-        }, new ColumnMapRowMapper());
+        }, rs -> {
+            ColumnMapRowMapper mapper = new ColumnMapRowMapper();
+            List<Map<String, Object>> rows = new ArrayList<>();
+            long total = 0;
+            while (rs != null && rs.next()) {
+                total++;
+                if (rows.size() < SNIPPET_ROW_LIMIT) {
+                    rows.add(mapper.mapRow(rs, (int) total));
+                }
+            }
+            return new BoundedResult(rows, total);
+        });
 
-        return RunOutcome.success(snippet(rows));
+        return RunOutcome.success(snippet(result));
+    }
+
+    private record BoundedResult(List<Map<String, Object>> rows, long totalRows) {
     }
 
     private Map<String, Object> parseArgs(String argsJson) throws Exception {
@@ -105,15 +125,25 @@ public class DbFunctionJobTarget implements ScheduledJobTarget {
         });
     }
 
-    private String snippet(List<Map<String, Object>> rows) {
-        if (rows == null || rows.isEmpty()) {
+    private String snippet(BoundedResult result) {
+        if (result == null || result.totalRows() == 0) {
             return "0 rows";
         }
+        List<Map<String, Object>> rows = result.rows();
         try {
-            String json = objectMapper.writeValueAsString(rows.size() == 1 ? rows.get(0) : rows);
-            return json.length() <= RESULT_SNIPPET_MAX ? json : json.substring(0, RESULT_SNIPPET_MAX);
+            // Serialize row by row and stop as soon as the snippet budget is spent.
+            StringBuilder sb = new StringBuilder(rows.size() == 1 && result.totalRows() == 1 ? "" : "[");
+            for (int i = 0; i < rows.size() && sb.length() <= RESULT_SNIPPET_MAX; i++) {
+                if (i > 0) sb.append(',');
+                sb.append(objectMapper.writeValueAsString(rows.get(i)));
+            }
+            if (sb.length() > 0 && sb.charAt(0) == '[') sb.append(']');
+            String json = sb.length() <= RESULT_SNIPPET_MAX ? sb.toString() : sb.substring(0, RESULT_SNIPPET_MAX) + "...";
+            return result.totalRows() > rows.size()
+                    ? json + " (" + result.totalRows() + " rows total)"
+                    : json;
         } catch (Exception e) {
-            return rows.size() + " rows";
+            return result.totalRows() + " rows";
         }
     }
 }

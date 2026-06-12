@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { BridgeConfig } from '../src/config.js';
 import { parseFunctionArgs, resolveExitCode, runFunctionsCommand } from '../src/functions.js';
+import { NubaseClient } from '../src/nubase-client.js';
 
 test('parseFunctionArgs separates positional and options', () => {
   const parsed = parseFunctionArgs(['hello', '--method', 'POST', '--privileged']);
@@ -101,7 +102,7 @@ test('functions deploy auto-bundles a TypeScript entrypoint', async () => {
   assert.match(source, /NUBASE_PROJECT_REF/);
 });
 
-test('functions deploy reads manifest entrypoint and updates existing function metadata', async () => {
+test('functions deploy on an existing function applies metadata via update without re-creating', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'nubase-functions-'));
   const cwd = process.cwd();
   const calls: string[] = [];
@@ -124,9 +125,93 @@ test('functions deploy reads manifest entrypoint and updates existing function m
     process.chdir(cwd);
     await rm(dir, { recursive: true, force: true });
   }
-  assert.deepEqual(calls, ['create:hello', 'update:hello:main.ts:false:undefined', 'deploy:hello']);
+  assert.deepEqual(calls, ['update:hello:main.ts:false:undefined', 'deploy:hello']);
   const payload = JSON.parse(Buffer.from(uploadedBundle, 'base64').toString('utf8'));
   assert.equal(payload.files[0].path, 'index.js');
+});
+
+test('redeploy without a manifest name omits name so a Studio-edited name is not reset', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'nubase-functions-'));
+  const cwd = process.cwd();
+  const updates: Array<Record<string, unknown>> = [];
+  try {
+    process.chdir(dir);
+    const fnDir = path.join(dir, 'nubase/functions/hello');
+    await mkdir(fnDir, { recursive: true });
+    await writeFile(path.join(fnDir, 'index.js'), 'export default { fetch() { return new Response("ok"); } };\n');
+    const client = {
+      functionsUpdate: async (args: Record<string, unknown>) => {
+        updates.push(args);
+        return { ok: true };
+      },
+      functionsCreate: async () => {
+        throw new Error('create must not be called for an existing function');
+      },
+      functionsDeploy: async () => ({ ok: true }),
+    } as any;
+    await runFunctionsCommand(['deploy', 'hello'], config(), client);
+  } finally {
+    process.chdir(cwd);
+    await rm(dir, { recursive: true, force: true });
+  }
+  assert.equal(updates.length, 1);
+  assert.equal('name' in updates[0]!, false, 'update payload must not carry a defaulted name');
+});
+
+test('redeploy with a manifest name includes it in the metadata update', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'nubase-functions-'));
+  const cwd = process.cwd();
+  const updates: Array<Record<string, unknown>> = [];
+  try {
+    process.chdir(dir);
+    const fnDir = path.join(dir, 'nubase/functions/hello');
+    await mkdir(fnDir, { recursive: true });
+    await writeFile(path.join(fnDir, 'index.js'), 'export default { fetch() { return new Response("ok"); } };\n');
+    await writeFile(path.join(fnDir, 'nubase-function.json'), JSON.stringify({ name: 'Hello Fn' }));
+    const client = {
+      functionsUpdate: async (args: Record<string, unknown>) => {
+        updates.push(args);
+        return { ok: true };
+      },
+      functionsCreate: async () => {
+        throw new Error('create must not be called for an existing function');
+      },
+      functionsDeploy: async () => ({ ok: true }),
+    } as any;
+    await runFunctionsCommand(['deploy', 'hello'], config(), client);
+  } finally {
+    process.chdir(cwd);
+    await rm(dir, { recursive: true, force: true });
+  }
+  assert.equal(updates[0]?.name, 'Hello Fn');
+});
+
+test('functions invoke via CLI stays ungated when admin writes are off', async () => {
+  const cliConfig: BridgeConfig = {
+    nubaseUrl: 'http://localhost:9999',
+    projectKey: 'service-role',
+    allowSqlExecute: false,
+    allowDangerousSql: false,
+    allowAdminWrite: false,
+  };
+  const originalFetch = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    urls.push(String(input));
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+  let result: Record<string, any>;
+  try {
+    result = (await runFunctionsCommand(['invoke', 'hello'], cliConfig, new NubaseClient(cliConfig))) as Record<string, any>;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(urls, ['http://localhost:9999/functions/v1/hello']);
+  assert.equal(result.status, 200);
+  assert.notEqual((result as Record<string, unknown>).code, 'PERMISSION_GATE_OFF');
 });
 
 test('functions deploy --no-bundle uploads the raw TypeScript directory', async () => {
@@ -203,15 +288,17 @@ function config(): BridgeConfig {
   };
 }
 
-function fakeClient(calls: string[] = [], onDeploy?: (sourceBundleBase64: string) => void, createAlreadyExists = false) {
+// Deploy is update-first: functionsUpdate succeeds only when the fake function
+// "exists"; otherwise it throws FUNCTION_NOT_FOUND so deploy falls back to create.
+function fakeClient(calls: string[] = [], onDeploy?: (sourceBundleBase64: string) => void, functionExists = false) {
   return {
     functionsList: async () => [],
     functionsCreate: async (args: Record<string, unknown>) => {
       calls.push(`create:${args.slug}`);
-      if (createAlreadyExists) throw new Error('FUNCTION_EXISTS');
       return { ok: true };
     },
     functionsUpdate: async (args: Record<string, unknown>) => {
+      if (!functionExists) throw new Error('FUNCTION_NOT_FOUND');
       calls.push(`update:${args.slug}:${args.entrypoint}:${args.verifyJwt}:${args.privileged}`);
       return { ok: true };
     },

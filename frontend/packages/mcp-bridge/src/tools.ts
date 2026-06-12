@@ -1,3 +1,4 @@
+import { requiredObject, requiredString } from './args.js';
 import type { BridgeConfig } from './config.js';
 import { withScope } from './context.js';
 import { fetchDocs } from './docs.js';
@@ -10,38 +11,46 @@ export interface ToolDefinition {
   inputSchema: Record<string, unknown>;
 }
 
-export const TOOLS: ToolDefinition[] = [
-  {
-    name: 'fetch_docs',
+interface ToolEntry {
+  description: string;
+  inputSchema: Record<string, unknown>;
+  handler: (args: Record<string, unknown>, config: BridgeConfig, client: NubaseClient) => unknown;
+}
+
+// Single source of truth per tool: schema and handler live side by side so a
+// schema-advertised argument can never be silently dropped by a forgotten
+// dispatch case. TOOLS and callTool are both derived from this table.
+const TOOL_TABLE: Record<string, ToolEntry> = {
+  fetch_docs: {
     description: 'Fetch bundled Nubase agent docs. Topics: overview, quickstart, setup, memory, database, auth, storage, ai_gateway, security, or all.',
     inputSchema: objectSchema({
       topic: { type: 'string' },
     }),
+    handler: (args) => fetchDocs(typeof args.topic === 'string' ? args.topic : undefined),
   },
-  {
-    name: 'nubase_capabilities',
+  nubase_capabilities: {
     description: 'Discover Nubase backend capabilities and stable API paths.',
     inputSchema: objectSchema({}),
+    handler: (_args, _config, client) => client.capabilities(),
   },
-  {
-    name: 'nubase_instructions',
+  nubase_instructions: {
     description: 'Return agent instructions for using Nubase safely.',
     inputSchema: objectSchema({}),
+    handler: (_args, _config, client) => client.instructions(),
   },
-  {
-    name: 'nubase_overview',
+  nubase_overview: {
     description: 'One-shot snapshot of the whole backend in a single call: capabilities, database schema, storage buckets, auth users, AI Gateway keys, current permissions, and suggested next steps. Call this first when starting a Nubase task. Read-only; each section degrades gracefully if unauthorized.',
     inputSchema: objectSchema({
       schema: { type: 'string' },
     }),
+    handler: (args, _config, client) => client.overview(args),
   },
-  {
-    name: 'project_keys',
+  project_keys: {
     description: "Return this project's API keys for building apps: the anon/authenticated key (safe to embed in browser/client code, subject to RLS + user JWTs) and the service_role key (server-side/trusted tooling only — never ship to a browser). Read-only.",
     inputSchema: objectSchema({}),
+    handler: (_args, _config, client) => client.projectKeys(),
   },
-  {
-    name: 'memory_context',
+  memory_context: {
     description: 'Return compact relevant memory context for a task. Scope defaults can come from NUBASE_USER_ID, NUBASE_AGENT_ID, and NUBASE_RUN_ID.',
     inputSchema: objectSchema({
       task: { type: 'string' },
@@ -50,9 +59,9 @@ export const TOOLS: ToolDefinition[] = [
       agentId: { type: 'string' },
       runId: { type: 'string' },
     }, ['task']),
+    handler: (args, config, client) => client.memoryContext(withScope(config, args)),
   },
-  {
-    name: 'memory_search',
+  memory_search: {
     description: 'Search Nubase long-term memory.',
     inputSchema: objectSchema({
       query: { type: 'string' },
@@ -61,9 +70,9 @@ export const TOOLS: ToolDefinition[] = [
       agentId: { type: 'string' },
       runId: { type: 'string' },
     }, ['query']),
+    handler: (args, config, client) => client.memorySearch(withScope(config, args)),
   },
-  {
-    name: 'memory_write',
+  memory_write: {
     description: 'Write durable Nubase memory.',
     inputSchema: objectSchema({
       content: { type: 'string' },
@@ -72,75 +81,75 @@ export const TOOLS: ToolDefinition[] = [
       agentId: { type: 'string' },
       runId: { type: 'string' },
     }, ['content']),
+    handler: (args, config, client) => client.memoryWrite(withScope(config, args)),
   },
-  {
-    name: 'rest_select',
+  rest_select: {
     description: 'Call Nubase /rest/v1 for a table using a PostgREST query string, for example select=*&limit=10.',
     inputSchema: objectSchema({
       table: { type: 'string' },
       query: { type: 'string' },
     }, ['table']),
+    handler: (args, _config, client) => client.restSelect(args),
   },
-  {
-    name: 'sql_dry_run',
+  sql_dry_run: {
     description: 'Classify SQL risk and statement count without executing it.',
     inputSchema: objectSchema({ sql: { type: 'string' } }, ['sql']),
+    handler: (args, _config, client) => client.sqlDryRun(args),
   },
-  {
-    name: 'sql_execute',
+  sql_execute: {
     description: 'Execute SQL through Nubase admin API. Disabled unless NUBASE_ALLOW_SQL_EXECUTE=true.',
     inputSchema: objectSchema({ sql: { type: 'string' } }, ['sql']),
+    handler: (args, _config, client) => client.sqlExecute(args),
   },
-  {
-    name: 'db_export_schema',
+  db_export_schema: {
     description: 'Export table DDL for a Postgres schema (default public) to inspect the database structure. Read-only.',
     inputSchema: objectSchema({
       schema: { type: 'string' },
       tables: { type: 'string' },
       includeDrop: { type: 'boolean' },
     }),
+    handler: (args, _config, client) => client.dbExportSchema(args),
   },
-  {
-    name: 'db_list_migrations',
+  db_list_migrations: {
     description: 'List the audit trail of schema-changing SQL applied through sql_execute (most recent first), with timestamp, risk, and the SQL text. Read-only; returns an empty list if nothing has been recorded yet.',
     inputSchema: objectSchema({
       limit: { type: 'number' },
     }),
+    handler: (args, _config, client) => client.listMigrations(args),
   },
-  {
-    name: 'storage_list_buckets',
+  storage_list_buckets: {
     description: 'List Nubase storage buckets. Read-only.',
     inputSchema: objectSchema({
       search: { type: 'string' },
       limit: { type: 'number' },
       offset: { type: 'number' },
     }),
+    handler: (args, _config, client) => client.storageListBuckets(args),
   },
-  {
-    name: 'storage_create_bucket',
+  storage_create_bucket: {
     description: 'Create a storage bucket. Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true.',
     inputSchema: objectSchema({
       name: { type: 'string' },
       public: { type: 'boolean' },
       fileSizeLimit: { type: 'number' },
     }, ['name']),
+    handler: (args, _config, client) => client.storageCreateBucket(args),
   },
-  {
-    name: 'storage_delete_bucket',
+  storage_delete_bucket: {
     description: 'Delete a storage bucket. Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true.',
     inputSchema: objectSchema({ bucketId: { type: 'string' } }, ['bucketId']),
+    handler: (args, _config, client) => client.storageDeleteBucket(args),
   },
-  {
-    name: 'auth_list_users',
+  auth_list_users: {
     description: 'List auth users with optional keyword search. Read-only.',
     inputSchema: objectSchema({
       page: { type: 'number' },
       perPage: { type: 'number' },
       keyword: { type: 'string' },
     }),
+    handler: (args, _config, client) => client.authListUsers(args),
   },
-  {
-    name: 'auth_create_user',
+  auth_create_user: {
     description: 'Create an auth user. Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true.',
     inputSchema: objectSchema({
       email: { type: 'string' },
@@ -148,56 +157,56 @@ export const TOOLS: ToolDefinition[] = [
       phone: { type: 'string' },
       role: { type: 'string' },
     }, ['email']),
+    handler: (args, _config, client) => client.authCreateUser(args),
   },
-  {
-    name: 'auth_delete_user',
+  auth_delete_user: {
     description: 'Delete an auth user by id. Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true.',
     inputSchema: objectSchema({
       userId: { type: 'string' },
       softDelete: { type: 'boolean' },
     }, ['userId']),
+    handler: (args, _config, client) => client.authDeleteUser(args),
   },
-  {
-    name: 'gateway_list_keys',
+  gateway_list_keys: {
     description: 'List AI Gateway self-routing keys (nbk_) for this project. Read-only.',
     inputSchema: objectSchema({}),
+    handler: (_args, _config, client) => client.gatewayListKeys(),
   },
-  {
-    name: 'gateway_issue_key',
+  gateway_issue_key: {
     description: 'Issue a new AI Gateway key (full key returned once). Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true.',
     inputSchema: objectSchema({
       name: { type: 'string' },
       description: { type: 'string' },
       expiresAt: { type: 'string' },
     }),
+    handler: (args, _config, client) => client.gatewayIssueKey(args),
   },
-  {
-    name: 'gateway_revoke_key',
+  gateway_revoke_key: {
     description: 'Revoke an AI Gateway key by id. Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true.',
     inputSchema: objectSchema({ id: { type: 'string' } }, ['id']),
+    handler: (args, _config, client) => client.gatewayRevokeKey(args),
   },
-  {
-    name: 'gateway_usage',
+  gateway_usage: {
     description: 'AI Gateway usage overview (tokens, requests, cost) for a date range. Read-only.',
     inputSchema: objectSchema({
       startDate: { type: 'string' },
       endDate: { type: 'string' },
     }),
+    handler: (args, _config, client) => client.gatewayUsage(args),
   },
-  {
-    name: 'functions_list',
+  functions_list: {
     description: 'List Edge Functions for this project. Read-only.',
     inputSchema: objectSchema({}),
+    handler: (_args, _config, client) => client.functionsList(),
   },
-  {
-    name: 'functions_new',
+  functions_new: {
     description: 'Scaffold a local Edge Function under nubase/functions/<name>. Writes local files only.',
     inputSchema: objectSchema({
       name: { type: 'string' },
     }, ['name']),
+    handler: (args, config, client) => runFunctionsCommand(['new', requiredString(args.name, 'name')], config, client),
   },
-  {
-    name: 'functions_deploy',
+  functions_deploy: {
     description: 'Bundle and deploy a local Edge Function using the same manifest, esbuild, sourceHash, and sourceBundleBase64 flow as nubase_cli functions deploy. Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true.',
     inputSchema: objectSchema({
       name: { type: 'string' },
@@ -206,10 +215,10 @@ export const TOOLS: ToolDefinition[] = [
       noBundle: { type: 'boolean' },
       noVerifyJwt: { type: 'boolean' },
     }, ['name']),
+    handler: (args, config, client) => runFunctionsCommand(functionsDeployArgs(args), config, client),
   },
-  {
-    name: 'functions_invoke',
-    description: 'Invoke a deployed Edge Function over /functions/v1 and return the HTTP status, headers, and body envelope. Function-level 4xx/5xx responses are returned, not thrown.',
+  functions_invoke: {
+    description: 'Invoke a deployed Edge Function over /functions/v1 and return the HTTP status, headers, and body envelope. Function-level 4xx/5xx responses are returned, not thrown. Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true.',
     inputSchema: objectSchema({
       name: { type: 'string' },
       method: { type: 'string' },
@@ -217,31 +226,42 @@ export const TOOLS: ToolDefinition[] = [
       body: { type: 'string' },
       contentType: { type: 'string' },
     }, ['name']),
+    // Gated: invoking a function executes arbitrary code with the service_role
+    // key. The CLI invoke path stays ungated by design.
+    handler: (args, _config, client) => client.functionsInvokeGuarded({
+      slug: requiredString(args.name, 'name'),
+      method: typeof args.method === 'string' ? args.method : undefined,
+      path: typeof args.path === 'string' ? args.path : undefined,
+      body: typeof args.body === 'string' ? args.body : undefined,
+      contentType: typeof args.contentType === 'string' ? args.contentType : undefined,
+    }),
   },
-  {
-    name: 'functions_logs',
+  functions_logs: {
     description: 'List Edge Function invocation logs, optionally filtered by function name. Read-only.',
     inputSchema: objectSchema({
       name: { type: 'string' },
       limit: { type: 'number' },
     }),
+    handler: (args, _config, client) => client.functionsLogs({
+      slug: typeof args.name === 'string' ? args.name : undefined,
+      limit: typeof args.limit === 'number' ? args.limit : undefined,
+    }),
   },
-  {
-    name: 'functions_delete',
+  functions_delete: {
     description: 'Delete an Edge Function. Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true.',
     inputSchema: objectSchema({
       name: { type: 'string' },
     }, ['name']),
+    handler: (args, _config, client) => client.functionsDelete({ slug: requiredString(args.name, 'name') }),
   },
-  {
-    name: 'functions_secrets_list',
+  functions_secrets_list: {
     description: 'List secret names for an Edge Function. Read-only; secret values are never returned.',
     inputSchema: objectSchema({
       name: { type: 'string' },
     }, ['name']),
+    handler: (args, _config, client) => client.functionsListSecrets({ slug: requiredString(args.name, 'name') }),
   },
-  {
-    name: 'functions_secrets_set',
+  functions_secrets_set: {
     description: 'Set Edge Function secrets from an object of KEY/value pairs. Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true.',
     inputSchema: objectSchema({
       name: { type: 'string' },
@@ -250,8 +270,18 @@ export const TOOLS: ToolDefinition[] = [
         additionalProperties: { type: 'string' },
       },
     }, ['name', 'secrets']),
+    handler: (args, _config, client) => client.functionsSetSecrets({
+      slug: requiredString(args.name, 'name'),
+      secrets: requiredObject(args.secrets, 'secrets'),
+    }),
   },
-];
+};
+
+export const TOOLS: ToolDefinition[] = Object.entries(TOOL_TABLE).map(([name, entry]) => ({
+  name,
+  description: entry.description,
+  inputSchema: entry.inputSchema,
+}));
 
 export async function callTool(
   name: string,
@@ -259,84 +289,9 @@ export async function callTool(
   config: BridgeConfig,
   client: NubaseClient
 ) {
-  switch (name) {
-    case 'fetch_docs':
-      return fetchDocs(typeof args.topic === 'string' ? args.topic : undefined);
-    case 'nubase_capabilities':
-      return client.capabilities();
-    case 'nubase_instructions':
-      return client.instructions();
-    case 'nubase_overview':
-      return client.overview(args);
-    case 'project_keys':
-      return client.projectKeys();
-    case 'memory_context':
-      return client.memoryContext(withScope(config, args));
-    case 'memory_search':
-      return client.memorySearch(withScope(config, args));
-    case 'memory_write':
-      return client.memoryWrite(withScope(config, args));
-    case 'rest_select':
-      return client.restSelect(args);
-    case 'sql_dry_run':
-      return client.sqlDryRun(args);
-    case 'sql_execute':
-      return client.sqlExecute(args);
-    case 'db_export_schema':
-      return client.dbExportSchema(args);
-    case 'db_list_migrations':
-      return client.listMigrations(args);
-    case 'storage_list_buckets':
-      return client.storageListBuckets(args);
-    case 'storage_create_bucket':
-      return client.storageCreateBucket(args);
-    case 'storage_delete_bucket':
-      return client.storageDeleteBucket(args);
-    case 'auth_list_users':
-      return client.authListUsers(args);
-    case 'auth_create_user':
-      return client.authCreateUser(args);
-    case 'auth_delete_user':
-      return client.authDeleteUser(args);
-    case 'gateway_list_keys':
-      return client.gatewayListKeys();
-    case 'gateway_issue_key':
-      return client.gatewayIssueKey(args);
-    case 'gateway_revoke_key':
-      return client.gatewayRevokeKey(args);
-    case 'gateway_usage':
-      return client.gatewayUsage(args);
-    case 'functions_list':
-      return client.functionsList();
-    case 'functions_new':
-      return runFunctionsCommand(['new', requiredString(args.name, 'name')], config, client);
-    case 'functions_deploy':
-      return runFunctionsCommand(functionsDeployArgs(args), config, client);
-    case 'functions_invoke':
-      return client.functionsInvoke({
-        slug: requiredString(args.name, 'name'),
-        method: typeof args.method === 'string' ? args.method : undefined,
-        path: typeof args.path === 'string' ? args.path : undefined,
-        body: typeof args.body === 'string' ? args.body : undefined,
-        contentType: typeof args.contentType === 'string' ? args.contentType : undefined,
-      });
-    case 'functions_logs':
-      return client.functionsLogs({
-        slug: typeof args.name === 'string' ? args.name : undefined,
-        limit: typeof args.limit === 'number' ? args.limit : undefined,
-      });
-    case 'functions_delete':
-      return client.functionsDelete({ slug: requiredString(args.name, 'name') });
-    case 'functions_secrets_list':
-      return client.functionsListSecrets({ slug: requiredString(args.name, 'name') });
-    case 'functions_secrets_set':
-      return client.functionsSetSecrets({
-        slug: requiredString(args.name, 'name'),
-        secrets: requiredObject(args.secrets, 'secrets'),
-      });
-    default:
-      throw new Error(`Unknown tool: ${name}`);
-  }
+  const entry = TOOL_TABLE[name];
+  if (!entry) throw new Error(`Unknown tool: ${name}`);
+  return entry.handler(args, config, client);
 }
 
 function functionsDeployArgs(args: Record<string, unknown>) {
@@ -349,16 +304,6 @@ function functionsDeployArgs(args: Record<string, unknown>) {
   if (args.noBundle === true) cliArgs.push('--no-bundle');
   if (args.noVerifyJwt === true) cliArgs.push('--no-verify-jwt');
   return cliArgs;
-}
-
-function requiredString(value: unknown, name: string) {
-  if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`);
-  return value;
-}
-
-function requiredObject(value: unknown, name: string) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} object is required`);
-  return value as Record<string, unknown>;
 }
 
 function objectSchema(properties: Record<string, unknown>, required: string[] = []) {

@@ -57,6 +57,8 @@ class EdgeFunctionAdminServiceTest {
     private EncryptionService encryptionService;
     @Mock
     private EdgeFunctionSecretEnv secretEnv;
+    @Mock
+    private EdgeFunctionSecretWriter secretWriter;
 
     private EdgeFunctionAdminService service;
 
@@ -64,7 +66,8 @@ class EdgeFunctionAdminServiceTest {
     void setUp() {
         service = new EdgeFunctionAdminService(
                 functionRepository, versionRepository, secretRepository, invocationRepository,
-                executor, deploymentRecorder, encryptionService, secretEnv);
+                executor, deploymentRecorder, encryptionService, secretEnv, secretWriter,
+                new ai.nubase.functions.executor.EdgeFunctionExecutorProperties());
         MultiTenancyContext.setContext(MultiTenancyContext.ContextData.builder().appCode("app1").build());
         lenient().when(secretRepository.findByFunctionOrderByNameAsc(any())).thenReturn(List.of());
     }
@@ -75,16 +78,37 @@ class EdgeFunctionAdminServiceTest {
     }
 
     @Test
-    void setSecretsSyncsToActiveDeployment() throws Exception {
+    void setSecretsSyncsOnlyChangedKeysToActiveDeployment() throws Exception {
         EdgeFunction fn = function(deployedVersion());
         when(functionRepository.findByProjectRefAndSlug("app1", "hello")).thenReturn(Optional.of(fn));
         when(secretRepository.findByFunctionAndName(eq(fn), anyString())).thenReturn(Optional.empty());
         when(encryptionService.encrypt(anyString())).thenReturn("encrypted");
-        when(secretEnv.decryptedEnv(fn)).thenReturn(Map.of("API_KEY", "v1"));
 
         service.setSecrets("hello", new SetFunctionSecretsRequest(Map.of("API_KEY", "v1")));
 
+        // Only the changed entries are pushed (plaintext already in hand) — never the
+        // full re-decrypted set.
         verify(executor).syncSecrets("app1", "hello", "deployment-1", Map.of("API_KEY", "v1"));
+        verify(secretEnv, never()).decryptedEnv(any());
+        verify(secretWriter).saveAll(any());
+        verify(secretEnv).evict(fn.getId());
+    }
+
+    @Test
+    void setSecretsValidatesWholeBatchBeforeAnyWrite() {
+        EdgeFunction fn = function(null);
+        when(functionRepository.findByProjectRefAndSlug("app1", "hello")).thenReturn(Optional.of(fn));
+
+        java.util.Map<String, String> batch = new java.util.LinkedHashMap<>();
+        batch.put("API_KEY", "v1");
+        batch.put("bad name!", "x");
+        assertThatThrownBy(() -> service.setSecrets("hello", new SetFunctionSecretsRequest(batch)))
+                .isInstanceOf(EdgeFunctionException.class)
+                .satisfies(e -> assertThat(((EdgeFunctionException) e).code()).isEqualTo("INVALID_SECRET_NAME"));
+
+        // Phase-1 failure must leave ZERO side effects — no half-applied secret set.
+        verify(secretWriter, never()).saveAll(any());
+        verify(secretEnv, never()).evict(any());
     }
 
     @Test
@@ -100,18 +124,21 @@ class EdgeFunctionAdminServiceTest {
     }
 
     @Test
-    void setSecretsSurfacesSyncFailure() throws Exception {
+    void setSecretsSurfacesSyncFailureAsSavedButNotApplied() throws Exception {
         EdgeFunction fn = function(deployedVersion());
         when(functionRepository.findByProjectRefAndSlug("app1", "hello")).thenReturn(Optional.of(fn));
         when(secretRepository.findByFunctionAndName(eq(fn), anyString())).thenReturn(Optional.empty());
         when(encryptionService.encrypt(anyString())).thenReturn("encrypted");
-        when(secretEnv.decryptedEnv(fn)).thenReturn(Map.of("API_KEY", "v1"));
         doThrow(new IllegalStateException("cloudflare down"))
                 .when(executor).syncSecrets(anyString(), anyString(), anyString(), any());
 
         assertThatThrownBy(() -> service.setSecrets("hello", new SetFunctionSecretsRequest(Map.of("API_KEY", "v1"))))
                 .isInstanceOf(EdgeFunctionException.class)
-                .satisfies(e -> assertThat(((EdgeFunctionException) e).code()).isEqualTo("SECRET_SYNC_FAILED"));
+                .satisfies(e -> {
+                    assertThat(((EdgeFunctionException) e).code()).isEqualTo("SECRET_SYNC_FAILED");
+                    // Storage IS durably updated at this point — the message must say so.
+                    assertThat(e.getMessage()).contains("saved");
+                });
     }
 
     @Test
@@ -130,6 +157,76 @@ class EdgeFunctionAdminServiceTest {
         assertThat(captor.getValue().entrypoint()).isEqualTo("main.js");
         assertThat(captor.getValue().env()).containsEntry("API_KEY", "v1");
         verify(deploymentRecorder).record(eq(fn.getId()), any(), any());
+    }
+
+    @Test
+    void deployDeletesSupersededProviderDeployment() {
+        EdgeFunction fn = function(version("deployed", "old-name-worker"));
+        when(functionRepository.findByProjectRefAndSlug("app1", "hello")).thenReturn(Optional.of(fn));
+        when(secretEnv.decryptedEnv(fn)).thenReturn(Map.of());
+        when(executor.deploy(any())).thenReturn(EdgeFunctionDeploymentResponse.deployed("cloudflare", "new-hashed-worker"));
+        when(deploymentRecorder.record(eq(fn.getId()), any(), any())).thenReturn(version("deployed", "new-hashed-worker"));
+
+        service.deploy("hello", new DeployFunctionRequest("hash", null, null, "bundle"));
+
+        // The old worker (old code + old secret bindings) must not leak on the provider.
+        verify(executor).delete("app1", "hello", "old-name-worker");
+    }
+
+    @Test
+    void deployDoesNotDeleteWhenProviderIdUnchanged() {
+        EdgeFunction fn = function(version("deployed", "same-worker"));
+        when(functionRepository.findByProjectRefAndSlug("app1", "hello")).thenReturn(Optional.of(fn));
+        when(secretEnv.decryptedEnv(fn)).thenReturn(Map.of());
+        when(executor.deploy(any())).thenReturn(EdgeFunctionDeploymentResponse.deployed("cloudflare", "same-worker"));
+        when(deploymentRecorder.record(eq(fn.getId()), any(), any())).thenReturn(version("deployed", "same-worker"));
+
+        service.deploy("hello", new DeployFunctionRequest("hash", null, null, "bundle"));
+
+        verify(executor, never()).delete(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void deployRecomputesSourceHashServerSide() throws Exception {
+        EdgeFunction fn = function(null);
+        when(functionRepository.findByProjectRefAndSlug("app1", "hello")).thenReturn(Optional.of(fn));
+        when(secretEnv.decryptedEnv(fn)).thenReturn(Map.of());
+        when(executor.deploy(any())).thenReturn(EdgeFunctionDeploymentResponse.failed("local", "boom"));
+        when(deploymentRecorder.record(eq(fn.getId()), any(), any())).thenReturn(version("failed", null));
+
+        String bundleBase64 = java.util.Base64.getEncoder()
+                .encodeToString("{\"files\":[]}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        service.deploy("hello", new DeployFunctionRequest("client-claimed-lie", null, null, bundleBase64));
+
+        ArgumentCaptor<DeployFunctionRequest> captor = ArgumentCaptor.forClass(DeployFunctionRequest.class);
+        verify(deploymentRecorder).record(eq(fn.getId()), captor.capture(), any());
+        String expected = java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest("{\"files\":[]}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        // Version history must describe the bundle actually deployed, not the client's claim.
+        assertThat(captor.getValue().sourceHash()).isEqualTo(expected);
+    }
+
+    @Test
+    void deployRejectsOversizedAndInvalidBundles() {
+        EdgeFunction fn = function(null);
+        when(functionRepository.findByProjectRefAndSlug("app1", "hello")).thenReturn(Optional.of(fn));
+
+        String huge = "A".repeat(15 * 1024 * 1024); // > default 10MB after base64 discount
+        assertThatThrownBy(() -> service.deploy("hello", new DeployFunctionRequest("h", null, null, huge)))
+                .isInstanceOf(EdgeFunctionException.class)
+                .satisfies(e -> assertThat(((EdgeFunctionException) e).code()).isEqualTo("BUNDLE_TOO_LARGE"));
+
+        assertThatThrownBy(() -> service.deploy("hello", new DeployFunctionRequest("h", null, null, "!!!not-base64!!!")))
+                .isInstanceOf(EdgeFunctionException.class)
+                .satisfies(e -> assertThat(((EdgeFunctionException) e).code()).isEqualTo("INVALID_BUNDLE"));
+        verify(executor, never()).deploy(any());
+    }
+
+    private EdgeFunctionVersion version(String status, String providerDeploymentId) {
+        return EdgeFunctionVersion.builder()
+                .status(status)
+                .providerDeploymentId(providerDeploymentId)
+                .build();
     }
 
     private EdgeFunction function(EdgeFunctionVersion activeVersion) {

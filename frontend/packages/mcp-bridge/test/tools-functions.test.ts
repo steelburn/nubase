@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { BridgeConfig } from '../src/config.js';
+import { NubaseClient } from '../src/nubase-client.js';
 import { callTool, TOOLS } from '../src/tools.js';
 
 function config(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
@@ -37,6 +38,10 @@ test('functions_deploy MCP tool reuses CLI bundling and deploy flow', async () =
 
     const calls: Array<{ op: string; args: Record<string, unknown> }> = [];
     const client = {
+      // Deploy is update-first; a missing function falls back to create.
+      functionsUpdate: async () => {
+        throw new Error('FUNCTION_NOT_FOUND');
+      },
       functionsCreate: async (args: Record<string, unknown>) => {
         calls.push({ op: 'create', args });
         return { ok: true };
@@ -61,10 +66,10 @@ test('functions_deploy MCP tool reuses CLI bundling and deploy flow', async () =
   }
 });
 
-test('functions_invoke MCP tool calls the functions HTTP client', async () => {
+test('functions_invoke MCP tool calls the gated functions HTTP client', async () => {
   const calls: Record<string, unknown>[] = [];
   const client = {
-    functionsInvoke: async (args: Record<string, unknown>) => {
+    functionsInvokeGuarded: async (args: Record<string, unknown>) => {
       calls.push(args);
       return { status: 201, data: { ok: true } };
     },
@@ -86,6 +91,54 @@ test('functions_invoke MCP tool calls the functions HTTP client', async () => {
     body: '{"ok":true}',
     contentType: 'application/json',
   });
+});
+
+test('functions_invoke MCP tool refuses with PERMISSION_GATE_OFF when admin writes are off', async () => {
+  const toolConfig = config({ allowAdminWrite: false });
+  const originalFetch = globalThis.fetch;
+  let fetched = 0;
+  globalThis.fetch = (async () => {
+    fetched += 1;
+    return new Response('{}', { status: 200 });
+  }) as typeof fetch;
+  let result: Record<string, any>;
+  try {
+    result = (await callTool('functions_invoke', { name: 'hello' }, toolConfig, new NubaseClient(toolConfig))) as Record<string, any>;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(result.success, false);
+  assert.equal(result.code, 'PERMISSION_GATE_OFF');
+  assert.match(result.remedy, /NUBASE_ALLOW_ADMIN_WRITE/);
+  assert.equal(fetched, 0, 'gated invoke must not hit the network');
+});
+
+test('functions_invoke MCP tool invokes the function when admin writes are on', async () => {
+  const toolConfig = config({ allowAdminWrite: true });
+  const originalFetch = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    urls.push(String(input));
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+  let result: Record<string, any>;
+  try {
+    result = (await callTool('functions_invoke', { name: 'hello', method: 'POST', body: '{}' }, toolConfig, new NubaseClient(toolConfig))) as Record<string, any>;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(urls, ['http://localhost:9999/functions/v1/hello']);
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.data, { ok: true });
+});
+
+test('functions_invoke tool description documents the admin-write gate', () => {
+  const tool = TOOLS.find((t) => t.name === 'functions_invoke');
+  assert.ok(tool);
+  assert.match(tool.description, /Write op; disabled unless NUBASE_ALLOW_ADMIN_WRITE=true/);
 });
 
 test('functions_delete MCP tool keeps admin-write gate in the client', async () => {

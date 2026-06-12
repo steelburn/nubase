@@ -1,5 +1,6 @@
+import { intOption, required } from './args.js';
 import type { BridgeConfig } from './config.js';
-import { intOption, parseFunctionArgs } from './functions.js';
+import { parseFunctionArgs } from './functions.js';
 import { NubaseClient } from './nubase-client.js';
 
 export async function runCronCommand(args: string[], config: BridgeConfig, client = new NubaseClient(config)) {
@@ -97,11 +98,6 @@ function parseJsonObjectOption(value: string, flag: string): Record<string, unkn
 
 function stringOption(value: string | boolean | undefined) {
   return typeof value === 'string' ? value : undefined;
-}
-
-function required(value: string | undefined, name: string) {
-  if (!value) throw new Error(`${name} is required`);
-  return value;
 }
 
 function cronHelp() {

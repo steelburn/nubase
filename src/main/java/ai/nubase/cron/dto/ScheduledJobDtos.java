@@ -12,7 +12,7 @@ import java.util.UUID;
 
 public final class ScheduledJobDtos {
 
-    public static final String NAME_PATTERN = "^[a-zA-Z0-9_-]{1,128}$";
+    public static final String NAME_PATTERN = ai.nubase.common.util.IdentifierPatterns.RESOURCE_NAME;
 
     private ScheduledJobDtos() {
     }

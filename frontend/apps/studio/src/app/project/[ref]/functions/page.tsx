@@ -6,6 +6,8 @@ import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Label }
 import { apiFetch, API_BASE, type ApiError } from '@/lib/api';
 import { isProjectReady, useSession } from '@/lib/session';
 import { NotProvisioned } from '@/components/not-provisioned';
+import { InfoTile } from '@/components/info-tile';
+import { formatDate } from '@/lib/format';
 import { useProjectRef } from '@/lib/route-params';
 
 interface EdgeFunction {
@@ -15,7 +17,6 @@ interface EdgeFunction {
   description?: string | null;
   verifyJwt: boolean;
   enabled: boolean;
-  privileged: boolean;
   entrypoint: string;
   activeVersion?: EdgeFunctionVersion | null;
   updatedAt?: string | null;
@@ -58,7 +59,6 @@ interface FunctionSecret {
 
 interface InvokeResult {
   status: number;
-  headers: Record<string, string>;
   body: string;
 }
 
@@ -106,7 +106,7 @@ function FunctionsInner({ projectRef }: { projectRef: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState({ name: '', slug: '', description: '' });
-  const [sourceCode, setSourceCode] = useState(SAMPLE_SOURCE);
+  const [sourceBySlug, setSourceBySlug] = useState<Record<string, string>>({});
   const [sourceNote, setSourceNote] = useState<string | null>(null);
   const [invokeDraft, setInvokeDraft] = useState({ method: 'POST', path: '', body: '{\n  "name": "ji"\n}' });
   const [invokeResult, setInvokeResult] = useState<InvokeResult | null>(null);
@@ -133,7 +133,29 @@ function FunctionsInner({ projectRef }: { projectRef: string }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const loadInvocations = useCallback(async () => {
+    try {
+      const invocations = await apiFetch<InvocationLog[]>('/functions/admin/v1/invocations?limit=50', { apikey, authScope: 'tenant' });
+      setLogs(invocations);
+    } catch {
+      // Keep the current log list when only the log refresh fails.
+    }
+  }, [apikey]);
+
   const current = functions.find((fn) => fn.slug === selected) ?? functions[0] ?? null;
+
+  // The editor buffer is keyed per function slug so switching functions never
+  // leaks one function's draft source into another's deploy.
+  const sourceCode = (current ? sourceBySlug[current.slug] : undefined) ?? SAMPLE_SOURCE;
+  const sourceIsTemplate = sourceCode === SAMPLE_SOURCE;
+
+  function setSourceCode(value: string) {
+    if (!current) return;
+    const slug = current.slug;
+    setSourceBySlug((prev) => ({ ...prev, [slug]: value }));
+  }
+
+  useEffect(() => { setSourceNote(null); }, [current?.slug]);
 
   const loadSecrets = useCallback(async (slug: string) => {
     try {
@@ -181,13 +203,13 @@ function FunctionsInner({ projectRef }: { projectRef: string }) {
     setBusy(fn.slug);
     setError(null);
     try {
-      await apiFetch<EdgeFunction>(`/functions/admin/v1/functions/${encodeURIComponent(fn.slug)}`, {
+      const updated = await apiFetch<EdgeFunction>(`/functions/admin/v1/functions/${encodeURIComponent(fn.slug)}`, {
         method: 'PATCH',
         apikey,
         authScope: 'tenant',
         body: patch,
       });
-      await load();
+      setFunctions((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
     } catch (err) {
       setError((err as ApiError).message ?? 'Update failed.');
     } finally {
@@ -200,12 +222,17 @@ function FunctionsInner({ projectRef }: { projectRef: string }) {
       setError('Function source is required.');
       return;
     }
+    const bundlePath = resolveBundlePath(fn.entrypoint);
+    const confirmed = window.confirm(
+      `This will overwrite the live deployment of "${fn.slug}" with the editor contents (${sourceCode.length} chars). Continue?`
+    );
+    if (!confirmed) return;
     setBusy(`deploy:${fn.slug}`);
     setError(null);
     setSourceNote(null);
     try {
-      const bundle = await buildSourceBundle(sourceCode);
-      await apiFetch(`/functions/admin/v1/functions/${encodeURIComponent(fn.slug)}/deploy`, {
+      const bundle = await buildSourceBundle(sourceCode, bundlePath);
+      const version = await apiFetch<EdgeFunctionVersion>(`/functions/admin/v1/functions/${encodeURIComponent(fn.slug)}/deploy`, {
         method: 'POST',
         apikey,
         authScope: 'tenant',
@@ -215,7 +242,17 @@ function FunctionsInner({ projectRef }: { projectRef: string }) {
           sourceBundleBase64: bundle.sourceBundleBase64,
         },
       });
-      setSourceNote(`Deployed index.js (${sourceCode.length} chars).`);
+      // The deploy endpoint reports provider failures in-band: HTTP 200 with a
+      // version DTO whose status is "failed".
+      const localNote = version.provider === 'local'
+        ? 'Note: the local executor does not receive Studio-uploaded code — this deploy only records a version; the local runtime serves its own function directory.'
+        : null;
+      if (version.status === 'failed') {
+        setError(version.errorMessage ?? 'Deploy failed.');
+        if (localNote) setSourceNote(localNote);
+      } else {
+        setSourceNote(`Deployed ${bundlePath} (${sourceCode.length} chars).${localNote ? ` ${localNote}` : ''}`);
+      }
       await load();
     } catch (err) {
       setError((err as ApiError).message ?? 'Deploy failed.');
@@ -257,10 +294,9 @@ function FunctionsInner({ projectRef }: { projectRef: string }) {
       });
       setInvokeResult({
         status: res.status,
-        headers: Object.fromEntries(res.headers.entries()),
         body: await res.text(),
       });
-      await load();
+      await loadInvocations();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invoke failed.');
     } finally {
@@ -389,14 +425,10 @@ function FunctionsInner({ projectRef }: { projectRef: string }) {
                       <Play className="h-3.5 w-3.5" />
                       {current.enabled ? 'Disable' : 'Enable'}
                     </Button>
-                    <Button size="sm" onClick={() => deploySource(current)} disabled={busy === `deploy:${current.slug}`}>
-                      <Rocket className="h-3.5 w-3.5" />
-                      Deploy code
-                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
                     <ToggleTile
                       label="JWT verification"
                       active={current.verifyJwt}
@@ -415,10 +447,10 @@ function FunctionsInner({ projectRef }: { projectRef: string }) {
                 <CardHeader className="flex-row items-center justify-between space-y-0">
                   <div>
                     <CardTitle className="text-base">Source</CardTitle>
-                    <p className="mt-1 text-xs text-muted-foreground">Deploys the editor as <span className="font-mono">index.js</span>.</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Deploys the editor as <span className="font-mono">{resolveBundlePath(current.entrypoint)}</span>.</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button type="button" size="sm" variant="outline" onClick={() => { setSourceCode(SAMPLE_SOURCE); setSourceNote('Sample index.js loaded.'); }}>
+                    <Button type="button" size="sm" variant="outline" onClick={() => { setSourceCode(SAMPLE_SOURCE); setSourceNote('Sample source loaded.'); }}>
                       <FileCode className="h-3.5 w-3.5" />
                       Sample
                     </Button>
@@ -445,6 +477,11 @@ function FunctionsInner({ projectRef }: { projectRef: string }) {
                     spellCheck={false}
                     className="h-80 w-full resize-y rounded-md border border-border bg-zinc-950 p-3 font-mono text-xs leading-5 text-zinc-100 outline-none ring-brand/40 placeholder:text-zinc-500 focus:ring-2"
                   />
+                  {sourceIsTemplate ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Showing the sample template — not the deployed source of <span className="font-mono">{current.slug}</span>.
+                    </p>
+                  ) : null}
                   {sourceNote ? <p className="mt-2 text-xs text-muted-foreground">{sourceNote}</p> : null}
                 </CardContent>
               </Card>
@@ -515,10 +552,10 @@ function FunctionsInner({ projectRef }: { projectRef: string }) {
                 <CardContent>
                   {current.activeVersion ? (
                     <div className="grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
-                      <Info label="Version" value={`v${current.activeVersion.versionNo}`} />
-                      <Info label="Provider" value={current.activeVersion.provider} />
-                      <Info label="Status" value={current.activeVersion.status} />
-                      <Info label="Source hash" value={current.activeVersion.sourceHash?.slice(0, 12) ?? '-'} mono />
+                      <InfoTile label="Version" value={`v${current.activeVersion.versionNo}`} />
+                      <InfoTile label="Provider" value={current.activeVersion.provider} />
+                      <InfoTile label="Status" value={current.activeVersion.status} />
+                      <InfoTile label="Source hash" value={current.activeVersion.sourceHash?.slice(0, 12) ?? '-'} mono />
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">No active deployment. Deploy from CLI or create a marker here.</p>
@@ -617,24 +654,17 @@ function ToggleTile({
   );
 }
 
-function Info({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="rounded-lg border border-border bg-background p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={'mt-2 truncate text-sm ' + (mono ? 'font-mono' : 'font-medium')}>{value}</div>
-    </div>
-  );
+function resolveBundlePath(entrypoint?: string | null) {
+  if (!entrypoint) return 'index.js';
+  // The editor always holds JavaScript, so a TypeScript entrypoint maps to its
+  // compiled .js sibling.
+  return entrypoint.endsWith('.ts') ? `${entrypoint.slice(0, -3)}.js` : entrypoint;
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  return new Date(value).toLocaleString();
-}
-
-async function buildSourceBundle(source: string) {
+async function buildSourceBundle(source: string, path: string) {
   const payload = JSON.stringify({
     files: [{
-      path: 'index.js',
+      path,
       content: base64EncodeUtf8(source),
     }],
   });

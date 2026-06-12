@@ -1,5 +1,6 @@
 package ai.nubase.cron.service;
 
+import ai.nubase.common.web.ApiStatusException;
 import org.springframework.http.HttpStatus;
 
 public final class CronExceptions {
@@ -7,23 +8,10 @@ public final class CronExceptions {
     private CronExceptions() {
     }
 
-    public static class CronException extends RuntimeException {
-
-        private final HttpStatus status;
-        private final String code;
+    public static class CronException extends ApiStatusException {
 
         public CronException(HttpStatus status, String code, String message) {
-            super(message);
-            this.status = status;
-            this.code = code;
-        }
-
-        public HttpStatus status() {
-            return status;
-        }
-
-        public String code() {
-            return code;
+            super(status, code, message);
         }
     }
 }
