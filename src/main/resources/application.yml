@@ -217,6 +217,28 @@ nubase:
   ai-gateway:
     enabled: true
 
+  # Static asset CDN module ("Assets"). Managed via the /assets/admin/v1 control plane
+  # (service_role), Studio, and MCP tools.
+  #
+  # Two delivery modes:
+  #  - CDN mode (recommended for production): set `bucket` to a DEDICATED, PUBLICLY
+  #    accessible R2 bucket with a custom domain in front (e.g. assets.nubase.ai via
+  #    Cloudflare). Objects are keyed {appCode}/{path} and public URLs become
+  #    {public-base-url}/{appCode}/{path} — reads never touch this backend and the CDN
+  #    honors the Cache-Control set at upload time.
+  #  - Backend mode (default for self-hosters): leave `bucket` empty; files live in the
+  #    global Storage bucket under the reserved {appCode}/__assets__/ prefix and are
+  #    served by this app at /assets/v1/** with Cache-Control/ETag/304 semantics.
+  assets:
+    enabled: ${NUBASE_ASSETS_ENABLED:true}
+    # Dedicated public R2 bucket for assets (empty = backend mode using the global bucket).
+    bucket: ${NUBASE_ASSETS_BUCKET:}
+    # Public origin of that bucket's custom domain, e.g. https://assets.nubase.ai
+    # (empty = build URLs against the project subdomain's /assets/v1 backend route).
+    public-base-url: ${NUBASE_ASSETS_PUBLIC_BASE_URL:}
+    # Max size of a single asset in bytes (projects can lower this via assets.settings).
+    max-file-size: ${NUBASE_ASSETS_MAX_FILE_SIZE:26214400}  # 25MB
+
   # Edge Functions module. Spring remains the public /functions/v1 gateway; the
   # executor can be swapped from local HTTP to Cloudflare Workers for Platforms.
   functions:

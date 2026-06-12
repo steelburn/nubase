@@ -105,6 +105,7 @@ Supabase is excellent, but its open-source self-hosted stack is designed around 
 - **🗄️ Database** — one isolated PostgreSQL per project; a PostgREST-compatible `/rest/v1` API (select/filter/order/paginate/insert/update/upsert/delete); per-project JWT secrets, roles, and schema cache; Row Level Security with JWT claims.
 - **🔐 Auth** — Supabase-style signup/login and refresh-token rotation; MFA/TOTP, OTP & magic links, anonymous sign-in; OAuth (Google / GitHub / WeChat) and SAML SSO; per-project `anon` / `authenticated` / `service_role` tokens.
 - **📦 Storage** — S3-compatible (Cloudflare R2 / AWS S3 / MinIO); public/private buckets, signed URLs, size & MIME controls; optional S3 Vectors for large document/asset workloads.
+- **🌐 Assets (static CDN)** — per-project public static assets served at `/assets/v1/**` with Cache-Control/ETag/304 semantics; per-project default cache policy and custom CDN domain; agents publish assets directly over MCP.
 - **🤖 AI Gateway** — OpenAI- and Anthropic-compatible endpoints with per-project keys and token/cost usage tracking.
 - **🧰 AI Coding & Agents** — an MCP bridge (`nubase_cli`) for schema inspection, SQL execution, RLS export, project init, and memory; one consistent project-token model across Auth, REST, Storage, and Memory.
 - **🎛️ Studio** — a Next.js dashboard for projects, SQL (with execution history), users, storage, and the memory explorer.

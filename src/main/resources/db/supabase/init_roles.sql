@@ -39,6 +39,18 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA ai_gateway
     GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${db_user};
 -- AI_GATEWAY-END
 
+-- ASSETS-BEGIN: db_user grants on assets schema
+-- Stripped by DatabaseInitService when nubase.assets.enabled=false (the schema
+-- does not exist in that case).
+GRANT USAGE ON SCHEMA assets TO ${db_user};
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA assets TO ${db_user};
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA assets TO ${db_user};
+ALTER DEFAULT PRIVILEGES IN SCHEMA assets
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${db_user};
+ALTER DEFAULT PRIVILEGES IN SCHEMA assets
+    GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${db_user};
+-- ASSETS-END
+
 -- Set default privileges for future tables in auth schema
 ALTER DEFAULT PRIVILEGES IN SCHEMA auth
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${db_user};
@@ -124,6 +136,16 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA ai_gateway
 ALTER DEFAULT PRIVILEGES IN SCHEMA ai_gateway
     GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${service_role};
 -- AI_GATEWAY-END
+
+-- ASSETS-BEGIN: service_role grants on assets schema
+GRANT USAGE ON SCHEMA assets TO ${service_role};
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA assets TO ${service_role};
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA assets TO ${service_role};
+ALTER DEFAULT PRIVILEGES IN SCHEMA assets
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${service_role};
+ALTER DEFAULT PRIVILEGES IN SCHEMA assets
+    GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${service_role};
+-- ASSETS-END
 
 -- Grant bypass RLS privilege to service role
 ALTER ROLE ${service_role} BYPASSRLS;
@@ -340,6 +362,30 @@ CREATE POLICY "Authenticated can read mem config"
     TO ${authenticated_role}
     USING (true);
 -- MEM-END
+
+-- ASSETS-BEGIN: read grants and policies on assets.* tables
+-- Assets are public by definition (served apikey-free at /assets/v1/**), so
+-- authenticated users may read metadata and settings; only service_role
+-- (which bypasses RLS) can mutate.
+GRANT USAGE ON SCHEMA assets TO ${authenticated_role};
+GRANT SELECT ON ALL TABLES IN SCHEMA assets TO ${authenticated_role};
+ALTER DEFAULT PRIVILEGES IN SCHEMA assets
+    GRANT SELECT ON TABLES TO ${authenticated_role};
+GRANT USAGE ON SCHEMA assets TO ${anon_role};
+GRANT SELECT ON ALL TABLES IN SCHEMA assets TO ${anon_role};
+
+DROP POLICY IF EXISTS "Asset files are readable" ON assets.files;
+CREATE POLICY "Asset files are readable"
+    ON assets.files
+    FOR SELECT
+    USING (true);
+
+DROP POLICY IF EXISTS "Asset settings are readable" ON assets.settings;
+CREATE POLICY "Asset settings are readable"
+    ON assets.settings
+    FOR SELECT
+    USING (true);
+-- ASSETS-END
 
 -- ==================================================
 -- GRANT ROLES TO DATABASE CONNECTION USER

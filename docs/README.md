@@ -23,6 +23,7 @@ The project is Supabase-inspired, but it is built around two core differences:
 - [Architecture](architecture.md)
 - [Edge Functions](edge-functions.md)
 - [Scheduled Jobs (Cron)](scheduled-jobs.md)
+- [Assets (static asset CDN)](assets.md)
 - [MCP and agent guide](mcp.md)
 - [Connect agents](agent-connect.md)
 - [Documentation plan](documentation-plan.md)

@@ -306,6 +306,47 @@ public class AdminController {
     }
 
     /**
+     * POST /auth/v1/admin/init/assets-schema — backfill the {@code assets} schema (static
+     * asset CDN: files + settings tables, grants, RLS policies) onto already-initialized
+     * tenants.
+     *
+     * <p>Idempotent: re-running on a tenant that already has the assets schema is a no-op.
+     * Pass {@code dbKey} to target a single tenant; omit it to migrate every {@code INITIALIZED}
+     * tenant.
+     *
+     * <p>Returns a per-tenant status map: {@code {dbKey: "OK" | "ERROR: …" | "SKIPPED: …"}}.
+     */
+    @RequireServiceRole
+    @PostMapping("/admin/init/assets-schema")
+    public ResponseEntity<Map<String, Object>> initAssetsSchema(
+            @RequestParam(required = false) String dbKey) {
+        if (dbKey != null && !dbKey.isBlank()) {
+            log.warn("Assets-schema migration requested for tenant: {}", dbKey);
+            try {
+                List<String> steps = databaseInitService.initializeAssetsSchemaForExistingTenant(dbKey);
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "dbKey", dbKey,
+                        "steps", steps));
+            } catch (Exception e) {
+                log.error("Assets-schema migration failed for {}: {}", dbKey, e.getMessage(), e);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                        "success", false,
+                        "dbKey", dbKey,
+                        "error", e.getMessage()));
+            }
+        }
+        log.warn("Assets-schema migration requested for ALL initialized tenants");
+        Map<String, String> results = databaseInitService.initializeAssetsSchemaForAllTenants();
+        long okCount = results.values().stream().filter("OK"::equals).count();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "total", results.size(),
+                "ok", okCount,
+                "results", results));
+    }
+
+    /**
      * POST /auth/v1/admin/init/database - Initialize database with Supabase schema structure
      * <p>
      * WARNING: This is a powerful operation that creates physical databases.

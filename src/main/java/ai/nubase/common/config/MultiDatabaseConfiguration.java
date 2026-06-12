@@ -57,7 +57,8 @@ import java.util.concurrent.TimeUnit;
 @EnableJpaRepositories(
         basePackages = {
                 "ai.nubase.auth.repository",
-                "ai.nubase.ai.gateway.repository"
+                "ai.nubase.ai.gateway.repository",
+                "ai.nubase.assets.repository"
         },
         entityManagerFactoryRef = "entityManagerFactory",
         transactionManagerRef = "transactionManager"
@@ -160,7 +161,7 @@ public class MultiDatabaseConfiguration implements CachingConfigurer {
 
         LocalContainerEntityManagerFactoryBean emf = builder
                 .dataSource(dataSource)  // Bootstrap only, not used at runtime
-                .packages("ai.nubase.auth.entity", "ai.nubase.ai.gateway.entity")
+                .packages("ai.nubase.auth.entity", "ai.nubase.ai.gateway.entity", "ai.nubase.assets.entity")
                 .persistenceUnit("default")
                 .build();
 

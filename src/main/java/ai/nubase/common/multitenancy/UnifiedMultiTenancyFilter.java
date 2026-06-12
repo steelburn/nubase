@@ -223,10 +223,11 @@ public class UnifiedMultiTenancyFilter extends OncePerRequestFilter {
                 apikey = request.getParameter("apikey");
             }
             if (StringUtils.isBlank(apikey)) {
-                // Public / default Storage download paths AND SAML SSO endpoints (the IdP
-                // POSTs to the ACS without an apikey, like the OAuth callback): resolve the
-                // appCode from the subdomain to allow apikey-free access.
-                if (isPublicStoragePath(requestPath) || isSubdomainAuthPath(requestPath)) {
+                // Public / default Storage download paths, the Assets data plane and SAML SSO
+                // endpoints (the IdP POSTs to the ACS without an apikey, like the OAuth
+                // callback): resolve the appCode from the subdomain to allow apikey-free access.
+                if (isPublicStoragePath(requestPath) || isPublicAssetsPath(requestPath)
+                        || isSubdomainAuthPath(requestPath)) {
                     appCode = resolveAppCodeFromDomainOrReferer(request);
                     if (StringUtils.isNotBlank(appCode)) {
                         log.info("Subdomain-auth path: Resolved app_code from domain/referer: {}", appCode);
@@ -348,6 +349,15 @@ public class UnifiedMultiTenancyFilter extends OncePerRequestFilter {
      */
     private boolean isSubdomainAuthPath(String requestPath) {
         return requestPath.startsWith("/auth/v1/sso");
+    }
+
+    /**
+     * Assets data plane (/assets/v1/**): public static asset delivery, no apikey needed.
+     * The control plane (/assets/admin/v1/**) does NOT match this prefix and keeps
+     * requiring the project's service_role apikey.
+     */
+    private boolean isPublicAssetsPath(String requestPath) {
+        return requestPath.startsWith("/assets/v1/");
     }
 
     private boolean isPublicStoragePath(String requestPath) {

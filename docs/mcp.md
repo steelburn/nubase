@@ -63,6 +63,30 @@ Example:
 }
 ```
 
+## Assets Tools
+
+Static asset CDN MCP tools (see [assets.md](assets.md)):
+
+- `assetsUpload(path, content, contentBase64, contentType, cacheControl, upsert)`: publish a static asset to the project's public CDN endpoint. Pass `content` for UTF-8 text files (css/js/html/svg) or `contentBase64` for binaries. Returns the public URL.
+- `assetsList(prefix, search, limit)`: list assets with their public URLs.
+- `assetsDelete(path)`: delete an asset.
+
+`assetsUpload` and `assetsDelete` require connecting MCP with the project's service_role key.
+
+Example — publish a stylesheet:
+
+```json
+{
+  "tool": "assetsUpload",
+  "arguments": {
+    "path": "css/app.css",
+    "content": "body { margin: 0; }",
+    "contentType": "text/css",
+    "cacheControl": "31536000"
+  }
+}
+```
+
 Write a project decision:
 
 ```json

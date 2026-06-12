@@ -101,6 +101,14 @@ public class DatabaseInitService {
     private boolean aiGatewayEnabled;
 
     /**
+     * Whether the per-project {@code assets} schema (static asset CDN) should be created on
+     * new tenants. When {@code false}, the assets DDL is skipped and the ASSETS grant blocks
+     * in init_roles.sql are stripped. Mirrors {@code nubase.assets.enabled}.
+     */
+    @Value("${nubase.assets.enabled:true}")
+    private boolean assetsEnabled;
+
+    /**
      * PostgreSQL text-search config name baked into the {@code mem.memories} GIN index at
      * init time. Defaults to {@code simple} when not set. Whitelist-validated below.
      */
@@ -138,6 +146,7 @@ public class DatabaseInitService {
     private static final String INIT_STORAGE_SCHEMA_SQL = "db/supabase/init_storage_schema.sql";
     private static final String INIT_MEM_SCHEMA_SQL = "db/supabase/init_mem_schema.sql";
     private static final String INIT_AI_GATEWAY_SCHEMA_SQL = "db/supabase/init_ai_gateway_schema.sql";
+    private static final String INIT_ASSETS_SCHEMA_SQL = "db/supabase/init_assets_schema.sql";
     private static final String INIT_ROLES_SQL = "db/supabase/init_roles.sql";
 
     /**
@@ -595,6 +604,105 @@ public class DatabaseInitService {
         return results;
     }
 
+    /**
+     * Idempotently apply the assets schema (and role grants) to an already-initialized tenant.
+     *
+     * <p>Use when a tenant was provisioned before the static-asset CDN module existed. Safe to
+     * re-run — every statement in {@code init_assets_schema.sql} uses {@code IF NOT EXISTS}
+     * (or {@code DROP ... IF EXISTS} before {@code CREATE}) and the ASSETS grant blocks in
+     * init_roles.sql follow the same convention as the mem migration.
+     *
+     * @param dbKey tenant to migrate
+     * @return a summary of executed steps for the response body
+     */
+    public List<String> initializeAssetsSchemaForExistingTenant(String dbKey) {
+        if (!assetsEnabled) {
+            throw new IllegalStateException(
+                    "Assets feature is disabled (nubase.assets.enabled=false); cannot migrate assets schema. "
+                            + "Flip the flag to true and restart before invoking this endpoint.");
+        }
+        List<String> executedSteps = new ArrayList<>();
+        DatabaseConfig config = databaseConfigRepository.findByDbKey(dbKey);
+        if (config == null) {
+            throw new IllegalArgumentException("Database configuration not found for dbKey: " + dbKey);
+        }
+        if (!DatabaseInitStatus.INITIALIZED.name().equals(config.getInitStatus())) {
+            throw new IllegalStateException("Tenant " + dbKey
+                    + " is in status " + config.getInitStatus()
+                    + "; assets-schema migration only runs against INITIALIZED tenants");
+        }
+
+        String dbUser = config.getDbUser();
+        String jdbcUrl = config.getJdbcUrl();
+        String serviceRole = Role.SERVICE_ROLE.getValue();
+        String authenticatedRole = Role.AUTHENTICATED.getValue();
+        String anonRole = Role.ANON.getValue();
+
+        HikariDataSource superDs = null;
+        HikariDataSource userDs = null;
+        try {
+            String dbPassword = encryptionService.decrypt(config.getDbPasswordEncrypted());
+
+            // 1. dbUser: create the assets schema and run the table DDL (idempotent).
+            userDs = createDataSource(jdbcUrl, dbUser, dbPassword);
+            try (Connection conn = userDs.getConnection();
+                 Statement stmt = conn.createStatement()) {
+                stmt.execute("CREATE SCHEMA IF NOT EXISTS assets");
+                executedSteps.add("Ensured assets schema exists");
+
+                String assetsSql = loadAndReplacePlaceholders(
+                        INIT_ASSETS_SCHEMA_SQL, serviceRole, authenticatedRole, anonRole, dbUser);
+                executeSqlScript(stmt, assetsSql);
+                executedSteps.add("Applied init_assets_schema.sql");
+            }
+
+            // 2. Super-user: re-run init_roles.sql so the new assets grants/policies attach
+            //    (the file is fully idempotent — DROP POLICY IF EXISTS guards each CREATE).
+            superDs = createDataSource(jdbcUrl, metadataUsername, metadataPassword);
+            try (Connection conn = superDs.getConnection();
+                 Statement stmt = conn.createStatement()) {
+                String rolesSql = loadAndReplacePlaceholders(
+                        INIT_ROLES_SQL, serviceRole, authenticatedRole, anonRole, dbUser);
+                executeSqlScript(stmt, rolesSql);
+                executedSteps.add("Re-applied init_roles.sql (assets grants & policies)");
+            }
+
+            return executedSteps;
+        } catch (Exception e) {
+            log.error("Assets-schema migration failed for {}: {}", dbKey, e.getMessage(), e);
+            throw new RuntimeException("Assets-schema migration failed: " + e.getMessage(), e);
+        } finally {
+            if (superDs != null) {
+                try { superDs.close(); } catch (Exception ignore) {}
+            }
+            if (userDs != null) {
+                try { userDs.close(); } catch (Exception ignore) {}
+            }
+        }
+    }
+
+    /**
+     * Apply the assets-schema migration to every {@code INITIALIZED} tenant.
+     *
+     * @return {@code Map<dbKey, ok | error-message>} so the caller can report per-tenant status
+     */
+    public Map<String, String> initializeAssetsSchemaForAllTenants() {
+        Map<String, String> results = new LinkedHashMap<>();
+        for (DatabaseConfig cfg : databaseConfigRepository.findAllEnabled()) {
+            if (!DatabaseInitStatus.INITIALIZED.name().equals(cfg.getInitStatus())) {
+                results.put(cfg.getDbKey(), "SKIPPED: status=" + cfg.getInitStatus());
+                continue;
+            }
+            try {
+                initializeAssetsSchemaForExistingTenant(cfg.getDbKey());
+                results.put(cfg.getDbKey(), "OK");
+            } catch (Exception e) {
+                results.put(cfg.getDbKey(), "ERROR: " + e.getMessage());
+            }
+        }
+        return results;
+    }
+
     private void initializeSupabaseRoles(HikariDataSource dataSource, String serviceRole, String authenticatedRole, String anonRole, String dbUser) {
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
@@ -729,6 +837,12 @@ public class DatabaseInitService {
                 log.info("Created schema: ai_gateway");
             }
 
+            // 2d. Create the assets schema (static asset CDN) — only when enabled
+            if (assetsEnabled) {
+                stmt.execute("CREATE SCHEMA IF NOT EXISTS assets");
+                log.info("Created schema: assets");
+            }
+
             // 3. Execute the auth schema SQL
             String authSql = loadAndReplacePlaceholders(INIT_AUTH_SCHEMA_SQL, serviceRole, authenticatedRole, anonRole, dbUser);
             executeSqlScript(stmt, authSql);
@@ -755,6 +869,15 @@ public class DatabaseInitService {
                 log.info("Initialized ai_gateway schema tables");
             } else {
                 log.info("Skipping ai_gateway schema tables — nubase.ai-gateway.enabled=false");
+            }
+
+            // 7. Execute the assets schema SQL (static asset CDN) — only when enabled
+            if (assetsEnabled) {
+                String assetsSql = loadAndReplacePlaceholders(INIT_ASSETS_SCHEMA_SQL, serviceRole, authenticatedRole, anonRole, dbUser);
+                executeSqlScript(stmt, assetsSql);
+                log.info("Initialized assets schema tables");
+            } else {
+                log.info("Skipping assets schema tables — nubase.assets.enabled=false");
             }
 
         } catch (SQLException | IOException e) {
@@ -798,6 +921,9 @@ public class DatabaseInitService {
         }
         if (!aiGatewayEnabled) {
             sqlContent = stripBlocks(sqlContent, "AI_GATEWAY");
+        }
+        if (!assetsEnabled) {
+            sqlContent = stripBlocks(sqlContent, "ASSETS");
         }
 
         // Replace placeholders

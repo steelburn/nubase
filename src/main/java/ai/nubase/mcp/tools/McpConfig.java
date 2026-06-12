@@ -10,9 +10,10 @@ public class McpConfig {
 
     @Bean
     public ToolCallbackProvider toolProvider(DatabaseMcpTools databaseMcpTools,
-                                             MemoryMcpTools memoryMcpTools) {
+                                             MemoryMcpTools memoryMcpTools,
+                                             AssetsMcpTools assetsMcpTools) {
         return MethodToolCallbackProvider.builder()
-                .toolObjects(databaseMcpTools, memoryMcpTools)
+                .toolObjects(databaseMcpTools, memoryMcpTools, assetsMcpTools)
                 .build();
     }
 
