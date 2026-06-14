@@ -5,7 +5,7 @@ export default function ConceptsPage() {
     <div>
       <h1 className="text-3xl font-semibold tracking-tight">The eight modules</h1>
       <p className="mt-3 text-muted-foreground">
-        nubase is built around eight modules that take an AI-written app from data all the way to a
+        Nubase is built around eight modules that take an AI-written app from data all the way to a
         live URL. They&apos;re peers — not features bolted onto a database — and they share one
         authentication model, one tenant boundary, and one self-hostable runtime.
       </p>

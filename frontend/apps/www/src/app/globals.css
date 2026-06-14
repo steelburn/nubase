@@ -17,13 +17,18 @@
   --nb-ink: #18242b; /* deep slate ink */
   --nb-dim: #5d6c74; /* muted body text */
   --nb-line: rgba(20, 45, 38, 0.1); /* hairline borders */
+  --nb-surface: #ffffff; /* card surface */
+  --nb-surface-2: rgba(20, 45, 38, 0.03); /* subtle chip / pill surface */
+  --nb-grid: rgba(20, 45, 38, 0.06); /* technical grid lines */
+  --nb-mint-contrast: #ffffff; /* text on a mint/accent button */
+  --nb-code-bg: #f1f5f3; /* terminal / code block */
 
   /* Brand greens (tuned to read on white) ---------------------------------- */
   --nb-green: #0aa177;
   --nb-green-deep: #07795a;
 
   /* Playful accent palette ------------------------------------------------- */
-  --nb-mint: #34d3a6; /* hero base */
+  --nb-mint: #0aa177; /* accent — reads on light; flipped bright in .dark */
   --nb-mint-deep: #14b489; /* hero gradient end */
   --nb-mint-soft: #d6f7ec; /* tints, chips */
   --nb-yellow: #ffd23f;
@@ -39,6 +44,25 @@
   --font-display: 'Hanken Grotesk Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-sans: 'Hanken Grotesk Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+
+/* Dark theme — every token flips to a deep, unified surface so the whole page
+   is one color, not a light/dark patchwork. Toggled by next-themes via .dark. */
+.dark {
+  --nb-bg: #0b1512;
+  --nb-bg-2: #0f1a16;
+  --nb-ink: #f3f6f4;
+  --nb-dim: rgba(255, 255, 255, 0.62);
+  --nb-line: rgba(255, 255, 255, 0.1);
+  --nb-surface: rgba(255, 255, 255, 0.035);
+  --nb-surface-2: rgba(255, 255, 255, 0.05);
+  --nb-grid: rgba(255, 255, 255, 0.05);
+  --nb-green: #34e1a8;
+  --nb-green-deep: #34e1a8;
+  --nb-mint: #34e1a8;
+  --nb-mint-soft: rgba(52, 225, 168, 0.13);
+  --nb-mint-contrast: #06231b;
+  --nb-code-bg: #0a0f0d;
 }
 
 @layer base {
@@ -163,21 +187,13 @@
 
   /* ---- Cards ------------------------------------------------------------- */
   .nb-card {
-    background: #ffffff;
+    background: var(--nb-surface);
     border: 1px solid var(--nb-line);
-    border-radius: 20px;
-    box-shadow:
-      0 1px 0 rgba(20, 45, 38, 0.04),
-      0 18px 40px -30px rgba(20, 45, 38, 0.35);
-    transition:
-      transform 0.25s cubic-bezier(0.2, 0.7, 0.2, 1),
-      border-color 0.25s ease,
-      box-shadow 0.25s ease;
+    border-radius: 14px;
+    transition: border-color 0.2s ease;
   }
   .nb-card:hover {
-    transform: translateY(-4px);
-    border-color: rgba(52, 211, 166, 0.6);
-    box-shadow: 0 26px 60px -28px rgba(20, 180, 137, 0.5);
+    border-color: rgba(52, 211, 166, 0.55);
   }
 
   /* Staggered page-load reveals (set animation-delay inline) */

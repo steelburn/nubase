@@ -58,7 +58,7 @@ export function HeaderAuth() {
       <div className="flex items-center gap-2">
         <Link
           href="/studio/projects"
-          className="inline-flex items-center gap-1.5 rounded-full bg-[var(--nb-ink)] px-4 py-2 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 hover:bg-[var(--nb-green-deep)]"
+          className="inline-flex items-center gap-1.5 rounded-full bg-[var(--nb-mint)] px-4 py-2 text-sm font-semibold text-[var(--nb-mint-contrast)] transition-opacity hover:opacity-90"
         >
           <LayoutDashboard className="h-4 w-4" /> Dashboard
         </Link>
@@ -66,7 +66,7 @@ export function HeaderAuth() {
           href="/studio/account"
           title={user.email}
           aria-label="Account"
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--nb-mint)] text-xs font-semibold text-[#07382c] shadow-sm transition-opacity hover:opacity-90"
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--nb-mint)] text-xs font-semibold text-[var(--nb-mint-contrast)] shadow-sm transition-opacity hover:opacity-90"
         >
           {initial}
         </Link>
@@ -77,7 +77,7 @@ export function HeaderAuth() {
   return (
     <Link
       href="/studio/login"
-      className="inline-flex items-center gap-1.5 rounded-full bg-[var(--nb-ink)] px-4 py-2 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5 hover:bg-[var(--nb-green-deep)]"
+      className="inline-flex items-center gap-1.5 rounded-full bg-[var(--nb-mint)] px-4 py-2 text-sm font-semibold text-[var(--nb-mint-contrast)] transition-opacity hover:opacity-90"
     >
       Get started <ArrowRight className="h-4 w-4" />
     </Link>

@@ -11,7 +11,7 @@ export default function MemoryQuickstartPage() {
 
       <h2 className="mt-10 text-xl font-semibold">0. Prerequisites</h2>
       <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
-        <li>nubase backend running on <code>:9999</code></li>
+        <li>Nubase backend running on <code>:9999</code></li>
         <li>Tenant provisioned via <code>POST /auth/v1/admin/init/database</code></li>
         <li><code>OPENAI_API_KEY</code> (or Anthropic / DashScope key) set in the backend env</li>
         <li>An export <code>NUBASE_SERVICE_KEY=&quot;eyJ…&quot;</code> with the project&apos;s service_role JWT</li>

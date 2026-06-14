@@ -13,7 +13,7 @@ import {
 
 /**
  * Detailed feature inventory across the eight modules. Each section is the
- * source-of-truth for "what does nubase actually do" — keep it specific so engineering
+ * source-of-truth for "what does Nubase actually do" — keep it specific so engineering
  * evaluators don't have to dig through commits. Ordered by how broadly an app needs
  * them: data & identity, then the deploy layer, then AI enhancements and scheduling.
  */
@@ -310,7 +310,7 @@ export default function FeaturesPage() {
           Eight modules. One backend. Generate → live.
         </h1>
         <p className="mt-3 text-pretty text-muted-foreground">
-          A complete inventory of what nubase ships out of the box — the modules an AI-written app
+          A complete inventory of what Nubase ships out of the box — the modules an AI-written app
           needs to go online: <strong>Database · Auth · Storage · Assets · Functions · AI Gateway ·
           Memory · cron</strong>. Detailed reference lives in{' '}
           <Link href="/docs" className="underline">the docs</Link>.

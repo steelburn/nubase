@@ -1,14 +1,11 @@
 import Link from 'next/link';
 import { Star } from 'lucide-react';
 import { HeaderAuth } from '@/components/header-auth';
+import { ThemeToggle } from '@/components/theme-toggle';
+import { LanguageSwitcher } from '@/components/language-switcher';
+import type { Dict, Lang } from '@/lib/i18n';
 
-const NAV = [
-  { href: '/features', label: 'Features' },
-  { href: '/compare', label: 'Compare' },
-  { href: '/docs', label: 'Docs' },
-  { href: '/blog', label: 'Blog' },
-  { href: '/news', label: 'News' },
-];
+const NAV = ['/features', '/compare', '/docs', '/blog', '/news'];
 
 const GH = 'https://github.com/OtterMind/Nubase';
 
@@ -31,23 +28,23 @@ function Logo({ className = 'h-8 w-8' }: { className?: string }) {
   );
 }
 
-export function SiteHeader() {
+export function SiteHeader({ t, lang }: { t: Dict['nav']; lang: Lang }) {
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-[var(--nb-line)] bg-white/85 backdrop-blur-md">
+    <header className="sticky top-0 z-40 w-full border-b border-[var(--nb-line)] bg-[var(--nb-bg)]/85 backdrop-blur-md">
       <div className="container flex h-16 items-center justify-between gap-4">
         <Link href="/" className="flex items-center gap-2.5 text-[17px] font-display font-semibold tracking-tight text-[var(--nb-ink)]">
           <Logo className="h-5 w-5" />
-          nubase
+          Nubase
         </Link>
 
         <nav className="hidden items-center gap-1 md:flex">
-          {NAV.map((item) => (
+          {NAV.map((href, i) => (
             <Link
-              key={item.href}
-              href={item.href}
+              key={href}
+              href={href}
               className="rounded-full px-3.5 py-2 text-sm font-medium text-[var(--nb-dim)] transition-colors hover:bg-[var(--nb-mint-soft)] hover:text-[var(--nb-ink)]"
             >
-              {item.label}
+              {t.items[i]}
             </Link>
           ))}
         </nav>
@@ -57,10 +54,12 @@ export function SiteHeader() {
             href={GH}
             target="_blank"
             rel="noreferrer"
-            className="hidden items-center gap-1.5 rounded-full border border-[var(--nb-line)] bg-white px-3.5 py-2 text-sm font-semibold text-[var(--nb-ink)] transition-colors hover:border-[var(--nb-mint)] hover:bg-[var(--nb-mint-soft)] sm:inline-flex"
+            className="hidden items-center gap-1.5 rounded-full border border-[var(--nb-line)] bg-[var(--nb-surface)] px-3.5 py-2 text-sm font-semibold text-[var(--nb-ink)] transition-colors hover:border-[var(--nb-mint)] hover:bg-[var(--nb-mint-soft)] sm:inline-flex"
           >
-            <Star className="h-4 w-4" /> Star
+            <Star className="h-4 w-4" /> {t.star}
           </Link>
+          <LanguageSwitcher current={lang} />
+          <ThemeToggle />
           <HeaderAuth />
         </div>
       </div>

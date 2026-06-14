@@ -3,8 +3,11 @@ import type { Metadata, Viewport } from 'next';
 // One readable grotesk (Hanken) for headings + body, plus a mono for code.
 import '@fontsource-variable/hanken-grotesk';
 import '@fontsource-variable/jetbrains-mono';
+import { Providers } from '@/components/providers';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
+import { getLang } from '@/lib/get-lang';
+import { getDict } from '@/lib/i18n';
 import { JsonLd } from '@/components/json-ld';
 import { SITE, SITE_URL, url } from '@/lib/site';
 import '@nubase/ui/styles.css';
@@ -68,16 +71,17 @@ const appLd = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const lang = getLang();
+  const t = getDict(lang);
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-    >
-      <body className="min-h-screen bg-background font-sans antialiased">
-        <JsonLd data={[orgLd, appLd]} />
-        <SiteHeader />
-        {children}
-        <SiteFooter />
+    <html lang={lang} suppressHydrationWarning>
+      <body className="min-h-screen bg-[var(--nb-bg)] font-sans text-[var(--nb-ink)] antialiased">
+        <Providers>
+          <JsonLd data={[orgLd, appLd]} />
+          <SiteHeader t={t.nav} lang={lang} />
+          {children}
+          <SiteFooter t={t.footer} />
+        </Providers>
       </body>
     </html>
   );

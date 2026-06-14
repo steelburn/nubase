@@ -3,9 +3,9 @@ import Link from 'next/link';
 export default function DocsIndex() {
   return (
     <div>
-      <h1 className="text-3xl font-semibold tracking-tight">nubase docs</h1>
+      <h1 className="text-3xl font-semibold tracking-tight">Nubase docs</h1>
       <p className="mt-3 text-muted-foreground">
-        nubase turns AI-written code into real apps — eight modules
+        Nubase turns AI-written code into real apps — eight modules
         (<strong>Database · Auth · Storage · Assets · Functions · AI&nbsp;Gateway · Memory · cron</strong>)
         under one self-hostable backend and one Studio.
       </p>
