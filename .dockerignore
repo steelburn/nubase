@@ -5,8 +5,9 @@
 .claude
 .mcp.json
 
-target
-**/target
+# Maven build output only — must NOT use **/target, which would also drop the
+# Java source package src/main/java/ai/nubase/cron/target (breaks the backend build).
+/target
 **/.next
 **/node_modules
 **/.turbo
