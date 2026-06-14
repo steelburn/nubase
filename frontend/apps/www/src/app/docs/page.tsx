@@ -5,16 +5,16 @@ export default function DocsIndex() {
     <div>
       <h1 className="text-3xl font-semibold tracking-tight">nubase docs</h1>
       <p className="mt-3 text-muted-foreground">
-        nubase is the open data infrastructure for AI-native apps — four primitives
-        (<strong>Memory · Database · Storage · Auth</strong>) under one self-hostable
-        backend and one Studio.
+        nubase turns AI-written code into real apps — eight modules
+        (<strong>Database · Auth · Storage · Assets · Functions · AI&nbsp;Gateway · Memory · cron</strong>)
+        under one self-hostable backend and one Studio.
       </p>
 
       <h2 className="mt-10 text-xl font-semibold">Where to start</h2>
       <ul className="mt-3 space-y-2 text-sm">
         <li>
-          <Link href="/docs/concepts" className="font-medium underline">The four pillars</Link>
-          {' '}— how Memory, Database, Storage and Auth share one auth model and one tenant DB.
+          <Link href="/docs/concepts" className="font-medium underline">The eight modules</Link>
+          {' '}— how data, auth, the deploy layer (Assets · Functions · cron), AI Gateway and Memory share one auth model and one tenant DB.
         </li>
         <li>
           <Link href="/docs/getting-started" className="font-medium underline">Quickstart</Link>
@@ -26,7 +26,7 @@ export default function DocsIndex() {
         </li>
       </ul>
 
-      <h2 className="mt-10 text-xl font-semibold">By pillar</h2>
+      <h2 className="mt-10 text-xl font-semibold">Core modules</h2>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <DocCard
           title="Memory"
@@ -49,6 +49,10 @@ export default function DocsIndex() {
           body="Email + OAuth, JWT issuance with per-tenant secrets, refresh-token rotation. Drop-in for Supabase client SDKs."
         />
       </div>
+      <p className="mt-3 text-sm text-muted-foreground">
+        Plus the deploy layer and more —{' '}
+        <Link href="/docs/concepts" className="underline">Assets, Functions, AI Gateway and cron</Link>.
+      </p>
 
       <h2 className="mt-10 text-xl font-semibold">Mental model</h2>
       <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">

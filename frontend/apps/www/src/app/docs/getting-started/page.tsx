@@ -84,8 +84,8 @@ curl -X POST http://localhost:9999/mem/v1/search \\
       <h2 className="mt-8 text-xl font-semibold">Where next</h2>
       <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
         <li>
-          <Link href="/docs/concepts" className="underline">The four pillars</Link>
-          {' '}— how Memory, Database, Storage and Auth share one auth model and one tenant DB.
+          <Link href="/docs/concepts" className="underline">The eight modules</Link>
+          {' '}— how data, auth, the deploy layer (Assets · Functions · cron), AI Gateway and Memory share one auth model and one tenant DB.
         </li>
         <li>
           <Link href="/docs/memory/quickstart" className="underline">Memory deep-dive</Link>

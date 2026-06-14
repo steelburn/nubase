@@ -5,7 +5,7 @@ const SECTIONS = [
     title: 'Getting started',
     items: [
       { href: '/docs', label: 'Overview' },
-      { href: '/docs/concepts', label: 'The four pillars' },
+      { href: '/docs/concepts', label: 'The eight modules' },
       { href: '/docs/getting-started', label: 'Quickstart' },
     ],
   },

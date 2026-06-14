@@ -60,8 +60,8 @@ export function SiteFooter() {
             <span className="font-display text-lg font-semibold text-white">nubase</span>
           </div>
           <p className="text-sm leading-6 text-white/55">
-            The open-source, AI-native backend with real memory. Self-host the whole stack in one
-            Docker image.
+            Turn AI-written code into real apps — your coding agent ships the frontend, backend and
+            cron online. Self-host the whole stack in one Docker image.
           </p>
           <div className="mt-5 flex gap-3">
             <Link

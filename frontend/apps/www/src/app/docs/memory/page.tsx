@@ -116,7 +116,7 @@ export default function MemoryDocsPage() {
           href="/docs/concepts"
           className="rounded-md border border-border bg-card px-4 py-2 text-sm hover:border-foreground/20"
         >
-          The four pillars
+          The eight modules
         </Link>
       </div>
     </div>

@@ -3,42 +3,25 @@ import Link from 'next/link';
 export default function ConceptsPage() {
   return (
     <div>
-      <h1 className="text-3xl font-semibold tracking-tight">The four pillars</h1>
+      <h1 className="text-3xl font-semibold tracking-tight">The eight modules</h1>
       <p className="mt-3 text-muted-foreground">
-        nubase is built around four data primitives that an AI-native app needs to ship.
-        They&apos;re peers — not features bolted onto a database — and they share one
+        nubase is built around eight modules that take an AI-written app from data all the way to a
+        live URL. They&apos;re peers — not features bolted onto a database — and they share one
         authentication model, one tenant boundary, and one self-hostable runtime.
       </p>
 
-      <h2 className="mt-10 text-xl font-semibold">Why four, why these</h2>
+      <h2 className="mt-10 text-xl font-semibold">Why these eight</h2>
       <p className="mt-2 text-sm text-muted-foreground">
         Traditional BaaS (Supabase, Firebase, AWS Amplify) gives you three:
         <strong> Database · Storage · Auth</strong>. That was enough when apps were CRUD-on-data.
-        AI-native apps add a fourth: <strong>Memory</strong> — durable, queryable, evolving
-        knowledge about each user that the LLM can consult and update. Without it, every
-        conversation starts from zero and product teams end up reinventing the same vector
-        + history + entity plumbing.
+        AI-native apps add <strong>Memory</strong> (durable, queryable knowledge) and an{' '}
+        <strong>AI Gateway</strong> (model routing). And to actually <em>ship</em> a generated app
+        you need the deploy layer too: <strong>Assets</strong> to publish the frontend,{' '}
+        <strong>Functions</strong> to run backend logic, and <strong>cron</strong> to schedule
+        recurring work — so an agent goes generate → live without stitching three services together.
       </p>
 
       <div className="mt-8 space-y-6">
-        <Pillar
-          title="Memory"
-          accent="text-violet-300"
-          summary="The fourth primitive: durable knowledge about each user that the LLM can read and write."
-          owns={[
-            'mem.memories — facts with embeddings + audit hash',
-            'mem.memory_history — append-only ADD/UPDATE/DELETE log',
-            'mem.entities — entity store with linked memory ids for retrieval boost',
-            'mem.session_messages — rolling short-term conversation window',
-          ]}
-          api={[
-            'POST /mem/v1/memories — write (LLM extracts facts and decides ADD/UPDATE/DELETE)',
-            'POST /mem/v1/search — vector + BM25 + entity-boost fusion',
-            'GET /mem/v1/memories/{id}/history — audit trail',
-            'GET /mem/v1/entities — manage extracted entities',
-          ]}
-        />
-
         <Pillar
           title="Database"
           accent="text-emerald-300"
@@ -53,6 +36,23 @@ export default function ConceptsPage() {
             'POST /rest/v1/{table} — insert',
             'PATCH /rest/v1/{table}?id=eq.X — update',
             'POST /auth/v1/admin/sql/execute — service-role only',
+          ]}
+        />
+
+        <Pillar
+          title="Auth"
+          accent="text-amber-300"
+          summary="Issues the two-layer JWT used by every other module. Supabase-compatible API surface."
+          owns={[
+            'Tenant apikey: signs with per-tenant secret, carries the ref claim',
+            'User Bearer token: carries sub + role, RLS reads via auth.uid()',
+            'OAuth identities (auth.identities) + email/password',
+          ]}
+          api={[
+            'POST /auth/v1/signup — create user',
+            'POST /auth/v1/token — sign in, get access + refresh',
+            'POST /auth/v1/token?grant_type=refresh_token — rotate',
+            'GET /auth/v1/authorize?provider=google — OAuth start',
           ]}
         />
 
@@ -73,19 +73,84 @@ export default function ConceptsPage() {
         />
 
         <Pillar
-          title="Auth"
-          accent="text-amber-300"
-          summary="Issues the two-layer JWT used by every other pillar. Supabase-compatible API surface."
+          title="Assets"
+          accent="text-teal-300"
+          summary="A public CDN for the generated frontend — upload static files, get a live URL. No separate static host."
           owns={[
-            'Tenant apikey: signs with per-tenant secret, carries the ref claim',
-            'User Bearer token: carries sub + role, RLS reads via auth.uid()',
-            'OAuth identities (auth.identities) + email/password',
+            'assets.files — asset metadata (path, etag, cache policy)',
+            'assets.settings — per-project delivery + optional custom domain',
+            'Bytes in R2 (CDN mode) or the global Storage bucket (backend mode)',
           ]}
           api={[
-            'POST /auth/v1/signup — create user',
-            'POST /auth/v1/token — sign in, get access + refresh',
-            'POST /auth/v1/token?grant_type=refresh_token — rotate',
-            'GET /auth/v1/authorize?provider=google — OAuth start',
+            'PUT /assets/admin/v1/files/{path} — publish (service_role)',
+            'GET /assets/v1/{path} — public read (tenant from subdomain)',
+            'MCP assets_upload / assets_list / assets_delete',
+          ]}
+        />
+
+        <Pillar
+          title="Functions"
+          accent="text-yellow-300"
+          summary="Deploy AI-written backend logic as edge functions behind the Nubase gateway."
+          owns={[
+            'edge_functions / edge_function_versions — deploys + version history',
+            'edge_function_secrets — encrypted per-function secrets',
+            'edge_function_invocations — invocation logs',
+          ]}
+          api={[
+            'POST /functions/admin/v1/functions/{slug}/deploy — deploy',
+            'ANY /functions/v1/{slug} — invoke (verify_jwt)',
+            'MCP functions_deploy / functions_invoke / functions_secrets_set',
+          ]}
+        />
+
+        <Pillar
+          title="AI Gateway"
+          accent="text-violet-300"
+          summary="OpenAI/Anthropic-compatible model routing with per-project keys and usage tracking."
+          owns={[
+            'Gateway nbk_ keys (hashed) per project',
+            'Per-request usage: tokens, cost, first-token latency',
+            'Model pricing table for cost analytics',
+          ]}
+          api={[
+            'POST /v1/messages — Anthropic-compatible',
+            'POST /v1/chat/completions — OpenAI-compatible',
+            'GET /ai-gateway/admin/v1/usage/overview — analytics',
+          ]}
+        />
+
+        <Pillar
+          title="Memory"
+          accent="text-fuchsia-300"
+          summary="Durable knowledge about each user that the LLM can read and write — the layer plain BaaS lacks."
+          owns={[
+            'mem.memories — facts with embeddings + audit hash',
+            'mem.memory_history — append-only ADD/UPDATE/DELETE log',
+            'mem.entities — entity store with linked memory ids for retrieval boost',
+            'mem.session_messages — rolling short-term conversation window',
+          ]}
+          api={[
+            'POST /mem/v1/memories — write (LLM extracts facts and decides ADD/UPDATE/DELETE)',
+            'POST /mem/v1/search — vector + BM25 + entity-boost fusion',
+            'GET /mem/v1/memories/{id}/history — audit trail',
+            'GET /mem/v1/entities — manage extracted entities',
+          ]}
+        />
+
+        <Pillar
+          title="cron"
+          accent="text-orange-300"
+          summary="Recurring jobs from the control plane — invoke a function or a db function on a schedule."
+          owns={[
+            'scheduled_jobs — schedule, target, next_run_at / locked_until',
+            'scheduled_job_runs — run history',
+            'Control-plane scheduler with a row-level claim (no double-run)',
+          ]}
+          api={[
+            'POST /cron/admin/v1/jobs — create (service_role)',
+            'GET /cron/admin/v1/jobs/{name}/runs — run history',
+            'MCP cron_create / cron_update / cron_runs',
           ]}
         />
       </div>
@@ -96,22 +161,23 @@ export default function ConceptsPage() {
           <strong>One request, two JWTs.</strong> Every API call carries an{' '}
           <code>apikey</code> header (tenant + role) and an optional{' '}
           <code>Authorization: Bearer</code> (end user). The first picks the database; the
-          second picks the user.
+          second picks the user. Generated frontend code uses the anon key; service_role stays
+          server-side.
         </li>
         <li>
-          <strong>One tenant boundary.</strong> Memory, auth, storage metadata and your
-          business tables all live in the same physical Postgres for that tenant. A breach
-          of one tenant&apos;s secret cannot cross.
+          <strong>One tenant boundary.</strong> Memory, auth, storage metadata, assets, functions
+          and your business tables all belong to the same tenant. A breach of one tenant&apos;s
+          secret cannot cross.
         </li>
         <li>
           <strong>One RLS philosophy.</strong> Database tables enforce RLS at the Postgres
           level via <code>SET LOCAL ROLE</code>. Memory enforces ownership in the service
-          layer via <code>MemoryAuthScope</code> (JdbcTemplate runs as the dbUser, not RLS
-          roles). Both refuse cross-user reads by default.
+          layer via <code>MemoryAuthScope</code>. Both refuse cross-user reads by default.
         </li>
         <li>
-          <strong>One Studio.</strong> Provision a project, manage auth users, browse
-          tables, manage storage, inspect memory — same dashboard, same apikey.
+          <strong>One deploy surface.</strong> The same project token and MCP tools that read your
+          data also publish the frontend (Assets), deploy backend logic (Functions) and schedule
+          jobs (cron) — generate → live from one place.
         </li>
       </ol>
 
@@ -119,11 +185,11 @@ export default function ConceptsPage() {
       <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
         <li>
           <Link href="/docs/getting-started" className="underline">Quickstart</Link>
-          {' '}— stand up a backend and create a project.
+          {' '}— stand up a backend, create a project, and deploy.
         </li>
         <li>
           <Link href="/docs/memory" className="underline">Memory guide</Link>
-          {' '}— the new pillar, in depth.
+          {' '}— the differentiating module, in depth.
         </li>
       </ul>
     </div>

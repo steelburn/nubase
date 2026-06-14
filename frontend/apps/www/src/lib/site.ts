@@ -3,19 +3,24 @@ export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://nubase.ai'
 
 export const SITE = {
   name: 'Nubase',
-  tagline: 'The free, open-source, AI-native backend',
+  tagline: 'Turn AI-written code into real apps',
   description:
-    'Free and open-source (Apache-2.0), self-hostable backend for AI apps and coding agents: '
-    + 'first-class Memory, Database, Auth, Storage and an AI Gateway — with MCP for Claude & Codex.',
+    'Turn AI-written code into real apps. Configure the plugin once and your coding agent ships the '
+    + 'whole app online — frontend (Assets), backend (Functions), Database, Auth, Storage, AI Gateway, '
+    + 'Memory and cron — on one free, self-hostable service, with MCP for Claude & Codex.',
   github: 'https://github.com/OtterMind/Nubase',
   npm: 'https://www.npmjs.com/package/nubase_cli',
   ogImage: '/og.png',
   keywords: [
+    'deploy AI-generated app',
+    'ship AI code',
+    'AI app deployment',
     'open source backend',
     'self-hosted backend',
     'AI-native backend',
+    'edge functions',
+    'static site hosting',
     'AI memory',
-    'vector memory',
     'Supabase alternative',
     'Firebase alternative',
     'PostgREST',

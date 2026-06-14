@@ -33,8 +33,10 @@
   --nb-charcoal: #20262b; /* footer + dark blocks */
   --nb-cream: #f8f7f2;
 
-  /* Self-hosted font stacks (loaded via @fontsource in layout.tsx) */
-  --font-display: 'Fredoka Variable', 'Hanken Grotesk Variable', system-ui, sans-serif;
+  /* Self-hosted font stacks (loaded via @fontsource in layout.tsx).
+     One clean, highly-readable grotesk for both headings and body — Hanken
+     Grotesk: friendly but plain, no rounded display quirks. */
+  --font-display: 'Hanken Grotesk Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-sans: 'Hanken Grotesk Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 }
@@ -289,8 +291,11 @@
     .nb-shift,
     .nb-float,
     .nb-float-slow,
-    .nb-pulse {
-      animation: none;
+    .nb-pulse,
+    .animate-ping,
+    .animate-pulse,
+    .animate-spin {
+      animation: none !important;
     }
     .nb-reveal {
       opacity: 1;
