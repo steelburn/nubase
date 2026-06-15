@@ -1,4 +1,9 @@
-export const API_BASE = process.env.NEXT_PUBLIC_NUBASE_API_URL ?? 'http://localhost:9999';
+// Empty (relative) by default: the browser calls same-origin paths like `/auth/v1/...`,
+// which the Next standalone server proxies to the backend (see next.config.mjs rewrites),
+// or which the Java backend serves directly in static-export mode. This makes Studio work
+// at any server IP/domain without rebuilding. Set NEXT_PUBLIC_NUBASE_API_URL to an ABSOLUTE
+// URL only when serving Studio and the API on different origins without the built-in proxy.
+export const API_BASE = process.env.NEXT_PUBLIC_NUBASE_API_URL ?? '';
 
 export interface ApiError {
   status: number;

@@ -47,6 +47,16 @@ Open:
 - Backend: http://localhost:9999
 - Postgres: `localhost:5432`, database `postgrest_metadata`, user `postgres`, password `postgres`
 
+### Accessing from a remote server
+
+When the container runs on a remote host, just open Studio at the server's address —
+`http://<server-ip>:3000` (or your domain). Studio calls the backend through **relative
+paths** that the bundled Next server proxies to the API inside the container, so login and
+all API calls follow whatever host you used — no `localhost` hardcoding and no rebuild when
+the IP or domain changes. Expose port `9999` as well if external agents/MCP clients connect
+directly to the API. (Advanced: to serve Studio and the API on separate origins without the
+built-in proxy, rebuild with `--build-arg NEXT_PUBLIC_NUBASE_API_URL=https://api.example.com`.)
+
 The container creates persistent secrets under the `/data` volume when they are not provided through environment variables. Keep the same volume across restarts so encrypted project credentials remain readable.
 
 For production-like installs, set stable secrets explicitly:

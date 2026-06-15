@@ -18,7 +18,11 @@ COPY frontend/tsconfig.base.json ./
 COPY frontend/packages ./packages
 COPY frontend/apps/studio ./apps/studio
 
-ARG NEXT_PUBLIC_NUBASE_API_URL=http://localhost:9999
+# Leave empty so the Studio bundle uses RELATIVE API paths; the Next standalone server
+# proxies them to the backend inside the container (see apps/studio/next.config.mjs). The
+# image then works at any server IP/domain with no rebuild. Only set this to an ABSOLUTE URL
+# if you serve Studio and the API on separate origins without the built-in proxy.
+ARG NEXT_PUBLIC_NUBASE_API_URL=
 ENV NEXT_PUBLIC_NUBASE_API_URL=${NEXT_PUBLIC_NUBASE_API_URL}
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
