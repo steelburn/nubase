@@ -49,6 +49,12 @@ ENV PGDATA=/data/postgres \
     NUBASE_CACHE_TYPE=caffeine \
     SERVER_PORT=9999
 
+# This batteries-included image ships without SMTP, so email OTP codes can't be delivered —
+# requiring email verification would make signup impossible. Default it OFF here so accounts can
+# be created directly. Production (the plain jar deploy) keeps verification ON via application.yml
+# (default true). To require it in this image, set this to `true` and configure the mail env vars.
+ENV NUBASE_PLATFORM_EMAIL_VERIFICATION_ENABLED=false
+
 VOLUME ["/data"]
 # Single app port: 9999 serves both the API and the Studio UI (/studio). 5432 = Postgres.
 EXPOSE 9999 5432

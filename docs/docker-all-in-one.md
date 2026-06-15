@@ -53,6 +53,15 @@ domain). The UI calls the API with relative paths, so login and every request fo
 host you opened — there is no hardcoded `localhost` and no rebuild when the IP or domain
 changes. Only port `9999` needs to be reachable.
 
+### Studio signup & email verification
+
+This image defaults `NUBASE_PLATFORM_EMAIL_VERIFICATION_ENABLED=false`, so a Studio account can be
+created directly without an email code — the image ships without SMTP, so verification codes can't
+be delivered. To require email verification (e.g. a hardened self-host), set
+`-e NUBASE_PLATFORM_EMAIL_VERIFICATION_ENABLED=true` and configure the mail env vars (`SMTP_HOST`,
+`SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM_ADDRESS`). A plain `java -jar` / production
+deploy keeps verification **on** by default (`application.yml`), independent of this image.
+
 The container creates persistent secrets under the `/data` volume when they are not provided through environment variables. Keep the same volume across restarts so encrypted project credentials remain readable.
 
 For production-like installs, set stable secrets explicitly:
