@@ -390,15 +390,37 @@ public class DatabaseInitService {
      */
     @Deprecated
     public InitDatabaseResponse initDatabase(InitDatabaseRequest request) {
+        long startTime = System.currentTimeMillis();
+
         // Phase one: create configuration
         InitDatabaseResponse configResponse = createDatabaseConfig(request);
         if (!configResponse.isSuccess()) {
             return configResponse;
         }
 
-        // Phase two: initialize the physical database. Return its terminal result — phase one now
-        // returns a non-terminal "pending_init" status, so returning it would mask a phase-two failure.
-        return initializePhysicalDatabase(request.getDbKey());
+        // Phase two: initialize the physical database. Keep the terminal status from phase two,
+        // but preserve phase one's generated keys for legacy callers of this combined endpoint.
+        InitDatabaseResponse initResponse = initializePhysicalDatabase(request.getDbKey());
+        if (!initResponse.isSuccess()) {
+            return initResponse;
+        }
+
+        List<String> steps = new ArrayList<>();
+        if (configResponse.getSteps() != null) {
+            steps.addAll(configResponse.getSteps());
+        }
+        if (initResponse.getSteps() != null) {
+            steps.addAll(initResponse.getSteps());
+        }
+
+        return InitDatabaseResponse.success(
+                configResponse.getJwtSecret(),
+                configResponse.getServiceRoleToken(),
+                configResponse.getAuthenticatedToken(),
+                initResponse.getInitStatus(),
+                steps,
+                System.currentTimeMillis() - startTime
+        );
     }
 
     /**
