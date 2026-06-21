@@ -227,9 +227,7 @@ Nubase is early-stage but all eight modules (Database, Auth, Storage, Assets, Fu
 
 ## ⭐ Stargazers
 
-A huge thank-you to everyone who has starred Nubase! 🙏 You're all listed here:
-
-[![Stargazers of OtterMind/Nubase](https://reporoster.com/stars/OtterMind/Nubase)](https://github.com/OtterMind/Nubase/stargazers)
+A huge thank-you to everyone who has starred Nubase! 🙏 See the full list on the **[stargazers page »](https://github.com/OtterMind/Nubase/stargazers)**
 
 ### Star history
 
