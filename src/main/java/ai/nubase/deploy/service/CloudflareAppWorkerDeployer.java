@@ -78,11 +78,12 @@ public class CloudflareAppWorkerDeployer implements AppWorkerDeployer {
         try {
             List<AppWorkerDeploymentRequest.AppWorkerFile> publicAssets = publicAssetFiles(request);
             AssetUpload upload = uploadAssets(publicAssets, workerName);
-            uploadWorker(request, workerName, upload.completionJwt());
+            String providerVersionId = uploadWorker(request, workerName, upload.completionJwt());
             String previewUrl = "https://" + normalizeHost(request.previewHost());
             return new AppWorkerDeploymentResult(
                     "cloudflare",
                     workerName,
+                    providerVersionId,
                     previewUrl,
                     "deployed",
                     upload.manifestHash(),
@@ -92,6 +93,33 @@ public class CloudflareAppWorkerDeployer implements AppWorkerDeployer {
         } catch (Exception e) {
             log.warn("Cloudflare app worker deployment failed: appCode={}, workerName={}, error={}",
                     request.appCode(), workerName, e.toString());
+            throw e instanceof AppWorkerDeploymentException
+                    ? (AppWorkerDeploymentException) e
+                    : new AppWorkerDeploymentException(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public AppWorkerDeploymentResult activate(String workerName, String versionId, String previewHost) {
+        validateConfig();
+        String name = normalizeWorkerName(workerName);
+        String providerVersionId = requiredText(versionId, "providerVersionId");
+        try {
+            String deploymentId = createDeployment(name, providerVersionId);
+            String previewUrl = "https://" + normalizeHost(previewHost);
+            return new AppWorkerDeploymentResult(
+                    "cloudflare",
+                    deploymentId,
+                    providerVersionId,
+                    previewUrl,
+                    "deployed",
+                    null,
+                    0,
+                    Instant.now()
+            );
+        } catch (Exception e) {
+            log.warn("Cloudflare app worker activation failed: workerName={}, versionId={}, error={}",
+                    name, providerVersionId, e.toString());
             throw e instanceof AppWorkerDeploymentException
                     ? (AppWorkerDeploymentException) e
                     : new AppWorkerDeploymentException(e.getMessage(), e);
@@ -254,7 +282,7 @@ public class CloudflareAppWorkerDeployer implements AppWorkerDeployer {
                 + "/scripts/" + name;
     }
 
-    private void uploadWorker(AppWorkerDeploymentRequest request, String workerName, String assetCompletionJwt) throws IOException {
+    private String uploadWorker(AppWorkerDeploymentRequest request, String workerName, String assetCompletionJwt) throws IOException {
         Map<String, AppWorkerDeploymentRequest.AppWorkerFile> serverFiles = new LinkedHashMap<>();
         for (AppWorkerDeploymentRequest.AppWorkerFile file : request.serverFiles() == null ? List.<AppWorkerDeploymentRequest.AppWorkerFile>of() : request.serverFiles()) {
             String path = normalizeModulePath(file.path());
@@ -293,8 +321,23 @@ public class CloudflareAppWorkerDeployer implements AppWorkerDeployer {
                 .put(body.build())
                 .header("Authorization", "Bearer " + cf().getApiToken())
                 .build();
-        try (Response ignored = executeCloudflare(upload)) {
-            // Response body was already checked by executeCloudflare.
+        try (Response response = executeCloudflare(upload)) {
+            return providerVersionId(readEnvelope(response));
+        }
+    }
+
+    private String createDeployment(String workerName, String providerVersionId) throws IOException {
+        Map<String, Object> payload = Map.of(
+                "strategy", "percentage",
+                "versions", List.of(Map.of("version_id", providerVersionId, "percentage", 100))
+        );
+        Request request = new Request.Builder()
+                .url(scriptUrl(workerName) + "/deployments")
+                .post(RequestBody.create(objectMapper.writeValueAsBytes(payload), JSON))
+                .header("Authorization", "Bearer " + cf().getApiToken())
+                .build();
+        try (Response response = executeCloudflare(request)) {
+            return providerDeploymentId(readEnvelope(response), workerName);
         }
     }
 
@@ -524,6 +567,53 @@ public class CloudflareAppWorkerDeployer implements AppWorkerDeployer {
             throw new AppWorkerDeploymentException("Cloudflare response missing " + key);
         }
         return value;
+    }
+
+    private String requiredText(String value, String label) {
+        if (!StringUtils.hasText(value)) {
+            throw new AppWorkerDeploymentException(label + " is required");
+        }
+        return value.trim();
+    }
+
+    private Map<String, Object> readEnvelope(Response response) throws IOException {
+        String body = response.body() == null ? "" : response.body().string();
+        if (!StringUtils.hasText(body)) return Map.of();
+        return objectMapper.readValue(body, new TypeReference<>() {});
+    }
+
+    private String providerVersionId(Map<String, Object> envelope) {
+        Map<String, Object> result = resultObject(envelope);
+        String id = firstText(
+                stringValue(result.get("id")),
+                stringValue(result.get("version_id")),
+                stringValue(result.get("versionId"))
+        );
+        if (!StringUtils.hasText(id)) {
+            throw new AppWorkerDeploymentException("Cloudflare script upload response missing worker version id");
+        }
+        return id;
+    }
+
+    private String providerDeploymentId(Map<String, Object> envelope, String fallback) {
+        Map<String, Object> result = resultObject(envelope);
+        String id = firstText(
+                stringValue(result.get("id")),
+                stringValue(result.get("deployment_id")),
+                stringValue(result.get("deploymentId"))
+        );
+        return StringUtils.hasText(id) ? id : fallback;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> resultObject(Map<String, Object> envelope) {
+        Object result = envelope.get("result");
+        if (result instanceof Map<?, ?> map) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            map.forEach((key, value) -> out.put(String.valueOf(key), value));
+            return out;
+        }
+        return Map.of();
     }
 
     private String stringValue(Object value) {

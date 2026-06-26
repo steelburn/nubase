@@ -5,6 +5,7 @@ import java.time.Instant;
 public record AppWorkerDeploymentResult(
         String provider,
         String providerDeploymentId,
+        String providerVersionId,
         String previewUrl,
         String status,
         String assetManifestHash,

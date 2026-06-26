@@ -24,7 +24,9 @@ class CloudflareAppWorkerDeployerTest {
             server.enqueue(new MockResponse().setResponseCode(201).setBody("""
                     {"success":true,"result":{"jwt":"completion-token"}}
                     """));
-            server.enqueue(new MockResponse().setResponseCode(200).setBody("{\"success\":true}"));
+            server.enqueue(new MockResponse().setResponseCode(200).setBody("""
+                    {"success":true,"result":{"id":"cf-version-1"}}
+                    """));
             server.start();
             EdgeFunctionExecutorProperties props = props(server);
             var deployer = new CloudflareAppWorkerDeployer(props, new ObjectMapper());
@@ -71,6 +73,8 @@ class CloudflareAppWorkerDeployerTest {
             assertThat(result.status()).isEqualTo("deployed");
             assertThat(result.previewUrl()).isEqualTo("https://appabc.ottermind.app");
             assertThat(result.assetFileCount()).isEqualTo(3);
+            assertThat(result.providerDeploymentId()).isEqualTo("appabc");
+            assertThat(result.providerVersionId()).isEqualTo("cf-version-1");
 
             var session = server.takeRequest();
             assertThat(session.getMethod()).isEqualTo("POST");
@@ -111,7 +115,9 @@ class CloudflareAppWorkerDeployerTest {
             server.enqueue(new MockResponse().setResponseCode(200).setBody("""
                     {"success":true,"result":{"jwt":"completion-token","buckets":[]}}
                     """));
-            server.enqueue(new MockResponse().setResponseCode(200).setBody("{\"success\":true}"));
+            server.enqueue(new MockResponse().setResponseCode(200).setBody("""
+                    {"success":true,"result":{"version_id":"cf-version-empty-assets"}}
+                    """));
             server.start();
             EdgeFunctionExecutorProperties props = props(server);
             var deployer = new CloudflareAppWorkerDeployer(props, new ObjectMapper());
@@ -136,9 +142,63 @@ class CloudflareAppWorkerDeployerTest {
             ));
 
             assertThat(result.status()).isEqualTo("deployed");
+            assertThat(result.providerVersionId()).isEqualTo("cf-version-empty-assets");
             assertThat(server.getRequestCount()).isEqualTo(2);
             server.takeRequest();
             assertThat(server.takeRequest().getBody().readUtf8()).contains("\"assets\":{\"jwt\":\"completion-token\"}");
+        }
+    }
+
+    @Test
+    void activateCreatesDeploymentForExistingWorkerVersion() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setResponseCode(200).setBody("""
+                    {"success":true,"result":{"id":"deployment-1"}}
+                    """));
+            server.start();
+            var deployer = new CloudflareAppWorkerDeployer(props(server), new ObjectMapper());
+
+            var result = deployer.activate("appabc", "cf-version-1", "appabc.ottermind.app");
+
+            assertThat(result.status()).isEqualTo("deployed");
+            assertThat(result.providerDeploymentId()).isEqualTo("deployment-1");
+            assertThat(result.providerVersionId()).isEqualTo("cf-version-1");
+            assertThat(result.previewUrl()).isEqualTo("https://appabc.ottermind.app");
+
+            var request = server.takeRequest();
+            assertThat(request.getMethod()).isEqualTo("POST");
+            assertThat(request.getPath())
+                    .isEqualTo("/client/v4/accounts/acct/workers/dispatch/namespaces/ns/scripts/appabc/deployments");
+            assertThat(request.getBody().readUtf8())
+                    .contains("\"strategy\":\"percentage\"")
+                    .contains("\"version_id\":\"cf-version-1\"")
+                    .contains("\"percentage\":100");
+        }
+    }
+
+    @Test
+    void activateCreatesDeploymentForLiveSlotWorkerVersion() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setResponseCode(200).setBody("""
+                    {"success":true,"result":{"id":"deployment-live-1"}}
+                    """));
+            server.start();
+            var deployer = new CloudflareAppWorkerDeployer(props(server), new ObjectMapper());
+
+            var result = deployer.activate("appabc-live", "cf-prod-version-1", "appabc-live.ottermind.app");
+
+            assertThat(result.status()).isEqualTo("deployed");
+            assertThat(result.providerDeploymentId()).isEqualTo("deployment-live-1");
+            assertThat(result.providerVersionId()).isEqualTo("cf-prod-version-1");
+            assertThat(result.previewUrl()).isEqualTo("https://appabc-live.ottermind.app");
+
+            var request = server.takeRequest();
+            assertThat(request.getMethod()).isEqualTo("POST");
+            assertThat(request.getPath())
+                    .isEqualTo("/client/v4/accounts/acct/workers/dispatch/namespaces/ns/scripts/appabc-live/deployments");
+            assertThat(request.getBody().readUtf8())
+                    .contains("\"version_id\":\"cf-prod-version-1\"")
+                    .contains("\"percentage\":100");
         }
     }
 

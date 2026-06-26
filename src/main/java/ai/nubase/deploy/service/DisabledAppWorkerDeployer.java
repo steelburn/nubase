@@ -15,6 +15,11 @@ public class DisabledAppWorkerDeployer implements AppWorkerDeployer {
     }
 
     @Override
+    public AppWorkerDeploymentResult activate(String workerName, String versionId, String previewHost) {
+        throw new AppWorkerDeploymentException(DISABLED);
+    }
+
+    @Override
     public AppWorkerInfo get(String workerName) {
         throw new AppWorkerDeploymentException(DISABLED);
     }

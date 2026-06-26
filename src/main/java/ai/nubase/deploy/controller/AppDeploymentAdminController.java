@@ -3,6 +3,8 @@ package ai.nubase.deploy.controller;
 import ai.nubase.auth.annotation.RequireServiceRole;
 import ai.nubase.deploy.dto.AppDeploymentDtos.CompleteDeploymentRequest;
 import ai.nubase.deploy.dto.AppDeploymentDtos.AppWorkerDeleteResponse;
+import ai.nubase.deploy.dto.AppDeploymentDtos.AppWorkerActivateVersionRequest;
+import ai.nubase.deploy.dto.AppDeploymentDtos.AppWorkerActivateVersionResponse;
 import ai.nubase.deploy.dto.AppDeploymentDtos.AppWorkerDeployMetadata;
 import ai.nubase.deploy.dto.AppDeploymentDtos.AppWorkerDeployResponse;
 import ai.nubase.deploy.dto.AppDeploymentDtos.AppWorkerDetail;
@@ -111,6 +113,22 @@ public class AppDeploymentAdminController {
     @DeleteMapping("/app-workers/{workerName}")
     public ResponseEntity<AppWorkerDeleteResponse> deleteAppWorker(@PathVariable String workerName) {
         return ResponseEntity.ok(appWorkerService.delete(workerName));
+    }
+
+    @RequireServiceRole
+    @PostMapping("/app-workers/{workerName}/versions/{providerVersionId}/activate")
+    public ResponseEntity<AppWorkerActivateVersionResponse> activateAppWorkerVersion(
+            @PathVariable String workerName,
+            @PathVariable String providerVersionId,
+            @RequestBody(required = false) AppWorkerActivateVersionRequest request
+    ) {
+        AppWorkerActivateVersionRequest merged = new AppWorkerActivateVersionRequest(
+                request == null ? null : request.version(),
+                workerName,
+                providerVersionId,
+                request == null ? null : request.previewHost()
+        );
+        return ResponseEntity.ok(appWorkerDeployService.activateVersion(merged));
     }
 
     @PostMapping(value = "/app-workers/deploy", consumes = "multipart/form-data")
