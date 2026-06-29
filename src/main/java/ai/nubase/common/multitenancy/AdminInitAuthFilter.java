@@ -107,9 +107,9 @@ public class AdminInitAuthFilter extends OncePerRequestFilter {
 
         try {
             // 1. Extract the authentication token
-            String authToken = extractAuthToken(request);
+            AuthToken authToken = extractAuthToken(request);
 
-            if (StringUtils.isBlank(authToken)) {
+            if (authToken == null || StringUtils.isBlank(authToken.value())) {
                 log.warn("Admin init request without authentication: {}", requestPath);
                 sendUnauthorizedResponse(response, "Missing authentication token");
                 return;
@@ -125,7 +125,7 @@ public class AdminInitAuthFilter extends OncePerRequestFilter {
             if (PlatformAdminPaths.acceptsPlatformJwt(requestPath)) {
                 try {
                     PlatformAuthService.PlatformPrincipal principal =
-                            platformAuthService.resolvePrincipal(authToken);
+                            platformAuthService.resolvePrincipal(authToken.value());
                     resolvedUserId = principal.userId();
                     isSuperAdmin = principal.superAdmin();
                     accepted = true;
@@ -135,7 +135,7 @@ public class AdminInitAuthFilter extends OncePerRequestFilter {
                     log.debug("Platform JWT validation failed, falling back to service-role-key match: {}", jwtFailure.getMessage());
                 }
             }
-            if (!accepted && keyMatches(authToken)) {
+            if (!accepted && authToken.allowsMetadataKey() && keyMatches(authToken.value())) {
                 accepted = true;
                 isSuperAdmin = true; // metadata service-role key → root / super-admin scope
                 // The root key is not a human user; it acts as the reserved system user so that
@@ -170,19 +170,32 @@ public class AdminInitAuthFilter extends OncePerRequestFilter {
 
     /**
      * Extracts the authentication token from the request.
-     * Supported source:
-     * Authorization: Bearer <token>
+     * Supported sources:
+     * 1. Authorization: Bearer <token>
+     * 2. apikey header, for legacy bundled Studio platform JWT requests only.
+     *
+     * <p>The metadata service-role key is intentionally accepted only from Authorization. This keeps
+     * high-privilege server credentials out of the tenant-style apikey channel while preserving
+     * compatibility with existing Studio builds that send the platform user JWT as {@code apikey}.
      */
-    private String extractAuthToken(HttpServletRequest request) {
+    private AuthToken extractAuthToken(HttpServletRequest request) {
         String authHeader = request.getHeader("Authorization");
         if (StringUtils.isNotBlank(authHeader)) {
             if (authHeader.startsWith("Bearer ")) {
-                return authHeader.substring(7);
+                return new AuthToken(authHeader.substring(7), true);
             }
-            return authHeader;
+            return new AuthToken(authHeader, true);
+        }
+
+        String apikey = request.getHeader("apikey");
+        if (StringUtils.isNotBlank(apikey)) {
+            return new AuthToken(apikey, false);
         }
 
         return null;
+    }
+
+    private record AuthToken(String value, boolean allowsMetadataKey) {
     }
 
     /**

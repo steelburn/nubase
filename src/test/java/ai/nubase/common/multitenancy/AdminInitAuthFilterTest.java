@@ -76,6 +76,26 @@ class AdminInitAuthFilterTest {
     }
 
     @Test
+    void acceptsPlatformJwtFromApikeyHeaderForLegacyStudioRequests() throws Exception {
+        var request = new MockHttpServletRequest("GET", "/auth/v1/admin/projects");
+        request.addHeader("apikey", "platform-jwt");
+        when(platformAuthService.resolvePrincipal("platform-jwt"))
+                .thenReturn(new PlatformAuthService.PlatformPrincipal(
+                        UUID.fromString("11111111-1111-1111-1111-111111111111"),
+                        false,
+                        PlatformAuthService.PLATFORM_ROLE_USER
+                ));
+        var response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(request.getAttribute("platformUserId"))
+                .isEqualTo(UUID.fromString("11111111-1111-1111-1111-111111111111"));
+        assertThat(request.getAttribute("platformIsSuperAdmin")).isEqualTo(false);
+    }
+
+    @Test
     void rejectsMetadataServiceRoleKeyFromApikeyHeaderForPlatformControlPlane() throws Exception {
         var request = new MockHttpServletRequest("POST", "/deployments/platform/v1/app-workers/deploy");
         request.addHeader("apikey", METADATA_KEY);
@@ -84,7 +104,7 @@ class AdminInitAuthFilterTest {
         filter.doFilter(request, response, new MockFilterChain());
 
         assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(response.getContentAsString()).contains("Missing authentication token");
+        assertThat(response.getContentAsString()).contains("Invalid service role key");
     }
 
     @Test
