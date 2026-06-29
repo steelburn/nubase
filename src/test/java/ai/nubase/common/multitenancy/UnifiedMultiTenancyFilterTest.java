@@ -54,7 +54,23 @@ class UnifiedMultiTenancyFilterTest {
     void skipsAppWorkerDeployPathSoPlatformAdminFilterCanAuthenticateIt() throws Exception {
         var repository = mock(DatabaseConfigRepository.class);
         var filter = filter(repository, mock(RoutingDataSource.class));
-        var request = new MockHttpServletRequest("POST", "/deployments/admin/v1/app-workers/deploy");
+        var request = new MockHttpServletRequest("POST", "/deployments/platform/v1/app-workers/deploy");
+        request.setServerName("nubase.example");
+        var response = new MockHttpServletResponse();
+        var chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(MultiTenancyContext.getAppCode()).isNull();
+    }
+
+    @Test
+    void skipsAppWorkerReadPathSoPlainPlatformKeyIsNotParsedAsTenantJwt() throws Exception {
+        var repository = mock(DatabaseConfigRepository.class);
+        var filter = filter(repository, mock(RoutingDataSource.class));
+        var request = new MockHttpServletRequest("GET", "/deployments/platform/v1/app-workers/appabc");
+        request.addHeader("Authorization", "Bearer 7b8db4866db5ff41a36807bb679b08edc29287c340d07f130755312437416bc2");
         request.setServerName("nubase.example");
         var response = new MockHttpServletResponse();
         var chain = new MockFilterChain();

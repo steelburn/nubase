@@ -99,11 +99,6 @@ public class UnifiedMultiTenancyFilter extends OncePerRequestFilter {
             // for routing JDBC to the tenant DB and on the authenticateUser step for
             // user-id binding. Do NOT add it to this list.
 //            "/mcp",
-            "/auth/v1/admin/init/",       // Admin initialization endpoints, authenticated by a dedicated filter
-            "/auth/v1/admin/projects",    // Cross-tenant project list, authenticated by AdminInitAuthFilter
-            "/auth/v1/admin/platform/",   // Platform user management, authenticated by AdminInitAuthFilter
-            "/auth/v1/platform/",         // Platform-level developer accounts (Studio login), separate JWT auth
-            "/deployments/admin/v1/app-workers/deploy", // App-worker-only deploy can be platform-admin authenticated without tenant keys.
             "/storage/v1/health"    // Storage health check, no authentication required
     );
 
@@ -124,6 +119,10 @@ public class UnifiedMultiTenancyFilter extends OncePerRequestFilter {
         }
 
         // Skip paths that should not be filtered
+        if (PlatformAdminPaths.skipsTenantMultitenancy(requestPath)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         for (String path : NON_FILTERED_PATHS) {
             if (requestPath.startsWith(path)) {
                 filterChain.doFilter(request, response);

@@ -92,51 +92,13 @@ public class AdminInitAuthFilter extends OncePerRequestFilter {
                 candidate.getBytes(StandardCharsets.UTF_8));
     }
 
-    /** Paths where a platform-user JWT is accepted in addition to the metadata service-role key. */
-    private static final java.util.List<String> PLATFORM_JWT_ACCEPTED_PATHS = java.util.List.of(
-            "/auth/v1/admin/projects",   // list + per-project actions (provision, members)
-            "/auth/v1/admin/init/",      // create database config / one-shot init via platform JWT
-            "/auth/v1/admin/platform/",  // platform user management (role check enforced in controller)
-            "/deployments/admin/v1/app-workers/deploy" // app-worker-only deploy can run before a tenant project exists
-    );
-
-    /**
-     * Cross-tenant paths that require platform-level authentication.
-     * These paths do not carry a tenant apikey; they are authenticated with
-     * the metadata service_role_key.
-     */
-    private static final java.util.List<String> PLATFORM_ADMIN_PATHS = java.util.List.of(
-            "/auth/v1/admin/init/",
-            "/auth/v1/admin/projects",
-            "/auth/v1/admin/platform/",
-            "/deployments/admin/v1/app-workers/deploy"
-    );
-
-    private boolean isPlatformAdminPath(String requestPath) {
-        for (String p : PLATFORM_ADMIN_PATHS) {
-            if (requestPath.equals(p) || requestPath.startsWith(p)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean acceptsPlatformJwt(String requestPath) {
-        for (String p : PLATFORM_JWT_ACCEPTED_PATHS) {
-            if (requestPath.equals(p) || requestPath.startsWith(p)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         String requestPath = request.getRequestURI();
 
-        if (!isPlatformAdminPath(requestPath)) {
+        if (!PlatformAdminPaths.isPlatformAdminPath(requestPath)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -160,7 +122,7 @@ public class AdminInitAuthFilter extends OncePerRequestFilter {
             boolean accepted = false;
             boolean isSuperAdmin = false;
             java.util.UUID resolvedUserId = null;
-            if (acceptsPlatformJwt(requestPath)) {
+            if (PlatformAdminPaths.acceptsPlatformJwt(requestPath)) {
                 try {
                     PlatformAuthService.PlatformPrincipal principal =
                             platformAuthService.resolvePrincipal(authToken);
@@ -185,6 +147,11 @@ public class AdminInitAuthFilter extends OncePerRequestFilter {
                 sendUnauthorizedResponse(response, "Invalid service role key");
                 return;
             }
+            if (PlatformAdminPaths.requiresSuperAdmin(requestPath) && !isSuperAdmin) {
+                log.warn("Platform admin request without super-admin scope: {}", requestPath);
+                sendUnauthorizedResponse(response, "Super admin privileges are required");
+                return;
+            }
             // Single source of truth for the caller identity + super-admin decision. Downstream
             // controllers can rely on platformUserId being non-null (SYSTEM_USER_ID for the root
             // key); a null platformUserId in business code now signals a bug, not the metadata path.
@@ -203,31 +170,16 @@ public class AdminInitAuthFilter extends OncePerRequestFilter {
 
     /**
      * Extracts the authentication token from the request.
-     * Supported sources:
-     * 1. Authorization: Bearer <token>
-     * 2. apikey header
-     * 3. apikey query parameter
+     * Supported source:
+     * Authorization: Bearer <token>
      */
     private String extractAuthToken(HttpServletRequest request) {
-        // 1. Try the Authorization header
         String authHeader = request.getHeader("Authorization");
         if (StringUtils.isNotBlank(authHeader)) {
             if (authHeader.startsWith("Bearer ")) {
                 return authHeader.substring(7);
             }
             return authHeader;
-        }
-
-        // 2. Try the apikey header
-        String apikey = request.getHeader("apikey");
-        if (StringUtils.isNotBlank(apikey)) {
-            return apikey;
-        }
-
-        // 3. Try the apikey query parameter
-        apikey = request.getParameter("apikey");
-        if (StringUtils.isNotBlank(apikey)) {
-            return apikey;
         }
 
         return null;
