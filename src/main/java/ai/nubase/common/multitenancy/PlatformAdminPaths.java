@@ -14,7 +14,8 @@ public final class PlatformAdminPaths {
             "/auth/v1/admin/init",
             "/auth/v1/admin/projects",
             "/auth/v1/admin/platform",
-            "/deployments/platform/v1/app-workers"
+            "/deployments/platform/v1/app-workers",
+            "/ai-gateway/platform/v1"
     );
 
     private static final List<String> PLATFORM_JWT_ACCEPTED_PATHS = PLATFORM_ADMIN_PATHS;
@@ -24,11 +25,13 @@ public final class PlatformAdminPaths {
             "/auth/v1/admin/projects",
             "/auth/v1/admin/platform",
             "/auth/v1/platform",
-            "/deployments/platform/v1/app-workers"
+            "/deployments/platform/v1/app-workers",
+            "/ai-gateway/platform/v1"
     );
 
     private static final List<String> SUPER_ADMIN_REQUIRED_PATHS = List.of(
-            "/deployments/platform/v1/app-workers"
+            "/deployments/platform/v1/app-workers",
+            "/ai-gateway/platform/v1"
     );
 
     private PlatformAdminPaths() {

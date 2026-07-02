@@ -35,6 +35,7 @@ public class ApiUsageTrackingService {
     private final ApiUsageLogRepository apiUsageLogRepository;
     private final PricingService pricingService;
     private final ObjectMapper objectMapper;
+    private final ai.nubase.ai.gateway.platform.PlatformUsageTrackingService platformUsageTrackingService;
 
     /**
      * 从Claude API响应中提取token使用量
@@ -157,6 +158,10 @@ public class ApiUsageTrackingService {
 
             // 4. 更新每日统计（按 api_key_id 归集，租户库本身即项目边界）
             updateDailyStats(record, keyRow, cost.getUsd(), cost.getCny());
+
+            // 5. 追加平台中心账本（元数据库，按 appCode + user_id 归集，带 upstream 来源标记）。
+            //    独立于租户库，失败不影响上面的落库与请求本身。
+            platformUsageTrackingService.track(record, keyRow, keyRow.getUserId(), cost.getUsd(), cost.getCny());
 
             log.debug("Usage tracked successfully for API key: {}", maskApiKey(apiKey));
 

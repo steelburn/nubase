@@ -3,6 +3,9 @@ package ai.nubase.ai.gateway.service;
 import ai.nubase.ai.gateway.dto.ApiUsageRecord;
 import ai.nubase.ai.gateway.dto.TokenUsage;
 import ai.nubase.ai.gateway.entity.UpstreamConfig;
+import ai.nubase.ai.gateway.platform.GatewayRoutingContext;
+import ai.nubase.ai.gateway.platform.PlatformUpstream;
+import ai.nubase.ai.gateway.platform.PlatformUpstreamService;
 import ai.nubase.common.config.OpenAIConfig;
 import ai.nubase.common.enums.ApiProvider;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -55,6 +58,7 @@ public class OpenAINativeApiService {
     private final ApiUsageTrackingService usageTrackingService;
     private final ApiRequestLogService requestLogService;
     private final UpstreamConfigService upstreamConfigService;
+    private final PlatformUpstreamService platformUpstreamService;
 
     private OkHttpClient httpClient;
 
@@ -117,6 +121,12 @@ public class OpenAINativeApiService {
 
             return toUpstreamInfo(config);
         } catch (Exception e) {
+            // 项目无可用自定义上游 -> 优先回退平台统一配置。
+            UpstreamInfo platform = resolvePlatformUpstream(route);
+            if (platform != null) {
+                return platform;
+            }
+
             if (route.usesSupportedModel() && route.provider() == null && !route.usesChannelCode()) {
                 throw new IOException("Unable to get upstream config for model: " + route.supportedModel(), e);
             }
@@ -125,6 +135,7 @@ public class OpenAINativeApiService {
             }
 
             log.warn("Unable to get OpenAI upstream config from database, using config file: {}", e.getMessage());
+            GatewayRoutingContext.set(GatewayRoutingContext.Source.PLATFORM, "config-file");
             return new UpstreamInfo(
                     "config-file",
                     openAIConfig.getBaseUrl(),
@@ -166,12 +177,47 @@ public class OpenAINativeApiService {
     }
 
     private UpstreamInfo toUpstreamInfo(UpstreamConfig config) {
+        // 项目自定义上游（含故障转移候选）均来自租户库，标记为 custom 来源。
+        GatewayRoutingContext.set(GatewayRoutingContext.Source.CUSTOM, config.getName());
         return new UpstreamInfo(
                 config.getName(),
                 config.getBaseUrl(),
                 config.getAuthToken(),
                 config.getTimeoutMs(),
                 normalizeChatCompletionsPath(config.getChatCompletionsPath()));
+    }
+
+    /**
+     * 平台统一上游回退（元数据库）。按 route 的 provider / 支持模型选取一个平台上游，命中则标记为
+     * platform 来源。找不到返回 null，由调用方回退到环境默认配置。
+     */
+    private UpstreamInfo resolvePlatformUpstream(NativeOpenAIRoute route) {
+        try {
+            String selectionModel = routeModelForSelection(route.supportedModel(), route);
+            PlatformUpstream p = null;
+            if (route.provider() != null) {
+                p = platformUpstreamService.getDefaultByProvider(route.provider()).orElse(null);
+            } else if (route.usesSupportedModel()) {
+                p = platformUpstreamService.getBySupportedModel(selectionModel)
+                        .orElseGet(() -> platformUpstreamService.getDefaultByProvider(ApiProvider.OPENAI).orElse(null));
+            } else {
+                p = platformUpstreamService.getDefaultByProvider(ApiProvider.OPENAI).orElse(null);
+            }
+            if (p == null) {
+                return null;
+            }
+            log.info("[upstream_config]使用平台统一上游(OpenAI): {} ({})", p.getName(), route.routingLabel(selectionModel));
+            GatewayRoutingContext.set(GatewayRoutingContext.Source.PLATFORM, p.getName());
+            return new UpstreamInfo(
+                    p.getName(),
+                    p.getBaseUrl(),
+                    p.getAuthToken(),
+                    p.getTimeoutMs() == null ? openAIConfig.getTimeout() : p.getTimeoutMs(),
+                    normalizeChatCompletionsPath(p.getChatCompletionsPath()));
+        } catch (Exception e) {
+            log.warn("平台统一上游(OpenAI)解析失败: {}", e.getMessage());
+            return null;
+        }
     }
 
     private void validateChannel(UpstreamConfig config, NativeOpenAIRoute route) {
@@ -695,6 +741,11 @@ public class OpenAINativeApiService {
         try {
             NativeOpenAIRoute requestRoute = route.withSupportedModel(model);
             UpstreamInfo upstream = getUpstreamInfo(upstreamName, requestRoute);
+            // SSE 回调运行在 OkHttp 派发线程上，没有请求线程的 ThreadLocal。此处（请求线程）捕获租户上下文
+            // 与网关路由来源，供流式结束时的用量统计还原。
+            final ai.nubase.common.context.MultiTenancyContext.ContextData capturedContext =
+                    ai.nubase.common.context.MultiTenancyContext.getContext();
+            final GatewayRoutingContext.Routing capturedRouting = GatewayRoutingContext.get();
             String outboundRequestBody = rewriteRequestModelForUpstream(requestBody, model, requestRoute);
             outboundRequestBody = ensureStreamUsageIncluded(outboundRequestBody);
             String outboundModel = rewriteModelForUpstream(model, requestRoute);
@@ -831,8 +882,9 @@ public class OpenAINativeApiService {
 
                     long feaErr = firstEventAt.get();
                     Long ttftErr = feaErr > 0L ? feaErr - startTime : null;
-                    trackApiUsage(clientApiKey, requestId, model, endpointPath, "POST",
-                            statusCode, null, duration, ttftErr, headers, errorMsg);
+                    runWithCapturedContext(capturedContext, capturedRouting, () ->
+                            trackApiUsage(clientApiKey, requestId, model, endpointPath, "POST",
+                                    statusCode, null, duration, ttftErr, headers, errorMsg));
 
                     requestLogService.logRequest(requestId, maskApiKey(clientApiKey), "POST",
                             endpointPath, model, headers, requestBody,
@@ -868,8 +920,9 @@ public class OpenAINativeApiService {
                     // 记录 API 用量
                     long feaOk = firstEventAt.get();
                     Long ttftOk = feaOk > 0L ? feaOk - startTime : null;
-                    trackApiUsageWithTokenUsage(clientApiKey, requestId, model, endpointPath, "POST",
-                            200, finalUsage, duration, ttftOk, headers, null);
+                    runWithCapturedContext(capturedContext, capturedRouting, () ->
+                            trackApiUsageWithTokenUsage(clientApiKey, requestId, model, endpointPath, "POST",
+                                    200, finalUsage, duration, ttftOk, headers, null));
 
                     // 记录请求日志
                     requestLogService.logRequest(requestId, maskApiKey(clientApiKey), "POST",
@@ -890,8 +943,9 @@ public class OpenAINativeApiService {
                 log.warn("⏱️ SSE 发射器超时, 请求 ID: {}", requestId);
                 long duration = System.currentTimeMillis() - startTime;
 
-                trackApiUsage(clientApiKey, requestId, model, endpointPath, "POST",
-                        408, null, duration, null, headers, "Request timeout");
+                runWithCapturedContext(capturedContext, capturedRouting, () ->
+                        trackApiUsage(clientApiKey, requestId, model, endpointPath, "POST",
+                                408, null, duration, null, headers, "Request timeout"));
 
                 eventSource.cancel();
                 emitter.complete();
@@ -1075,6 +1129,30 @@ public class OpenAINativeApiService {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             throw new IOException("Retry interrupted", ie);
+        }
+    }
+
+    /**
+     * 在还原了请求线程租户上下文（及网关路由来源）的情况下执行用量统计。用于流式 SSE 回调这类运行在
+     * OkHttp 派发线程、天然没有 ThreadLocal 的场景。仅在当前线程无上下文时设置并在结束后清理。
+     */
+    private void runWithCapturedContext(ai.nubase.common.context.MultiTenancyContext.ContextData ctx,
+                                        GatewayRoutingContext.Routing routing, Runnable tracking) {
+        boolean contextApplied = false;
+        try {
+            if (ctx != null && !ai.nubase.common.context.MultiTenancyContext.hasContext()) {
+                ai.nubase.common.context.MultiTenancyContext.setContext(ctx);
+                contextApplied = true;
+            }
+            if (routing != null && GatewayRoutingContext.get() == null) {
+                GatewayRoutingContext.set(routing.source(), routing.upstreamName());
+            }
+            tracking.run();
+        } finally {
+            if (contextApplied) {
+                ai.nubase.common.context.MultiTenancyContext.clear();
+                GatewayRoutingContext.clear();
+            }
         }
     }
 

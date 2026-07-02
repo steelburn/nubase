@@ -146,6 +146,7 @@ public class GatewayApiKeyAuthFilter extends OncePerRequestFilter {
         } finally {
             SecurityContextHolder.clearContext();
             MultiTenancyContext.clear();
+            ai.nubase.ai.gateway.platform.GatewayRoutingContext.clear();
         }
     }
 
@@ -207,6 +208,7 @@ public class GatewayApiKeyAuthFilter extends OncePerRequestFilter {
         } finally {
             SecurityContextHolder.clearContext();
             MultiTenancyContext.clear();
+            ai.nubase.ai.gateway.platform.GatewayRoutingContext.clear();
         }
     }
 

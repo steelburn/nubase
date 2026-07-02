@@ -2,6 +2,9 @@ package ai.nubase.ai.gateway.service;
 
 import ai.nubase.ai.gateway.dto.ApiUsageRecord;
 import ai.nubase.ai.gateway.dto.TokenUsage;
+import ai.nubase.ai.gateway.platform.GatewayRoutingContext;
+import ai.nubase.ai.gateway.platform.PlatformUpstream;
+import ai.nubase.ai.gateway.platform.PlatformUpstreamService;
 import ai.nubase.common.config.AnthropicConfig;
 import ai.nubase.common.util.ApiKeyLogMask;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -43,6 +46,7 @@ public class ClaudeGatewayService {
     private final ApiUsageTrackingService usageTrackingService;
     private final ApiRequestLogService requestLogService;
     private final UpstreamConfigService upstreamConfigService;
+    private final PlatformUpstreamService platformUpstreamService;
     private final ContextPruneService contextPruneService;
     private OkHttpClient httpClient;
     private OkHttpClient streamingHttpClient;
@@ -80,37 +84,59 @@ public class ClaudeGatewayService {
      * @return 上游配置信息
      */
     private UpstreamInfo getUpstreamInfo(String upstreamName, ai.nubase.common.enums.ApiProvider provider) {
+        // 1) 优先使用项目自定义上游（各租户库 ai_gateway.upstream_configs）。
         try {
             ai.nubase.ai.gateway.entity.UpstreamConfig config;
-
             if (upstreamName != null && !upstreamName.isEmpty()) {
-                // 使用指定的上游
                 config = upstreamConfigService.getByName(upstreamName);
-                log.info("使用指定上游: {}", upstreamName);
+                log.info("使用项目自定义指定上游: {}", upstreamName);
             } else {
-                // 使用默认上游（根据实际 provider 查询）
                 config = upstreamConfigService.getDefaultByProvider(provider);
-                log.info("[upstream_config]使用默认上游: {} (provider={})", config.getName(), provider);
+                log.info("[upstream_config]使用项目自定义默认上游: {} (provider={})", config.getName(), provider);
             }
-
-            // 更新最后使用时间（异步）
             upstreamConfigService.updateLastUsedAt(config.getName());
-
+            GatewayRoutingContext.set(GatewayRoutingContext.Source.CUSTOM, config.getName());
             return new UpstreamInfo(
                     config.getName(),
                     config.getBaseUrl(),
                     config.getAuthToken(),
                     config.getTimeoutMs(),
                     config.getMaxInputTokens());
-        } catch (Exception e) {
-            // 如果数据库配置不可用，回退到配置文件
-            log.warn("无法从数据库获取上游配置，使用配置文件: {}", e.getMessage());
-            return new UpstreamInfo(
-                    "config-file",
-                    anthropicConfig.getBaseUrl(),
-                    anthropicConfig.getAuthToken(),
-                    anthropicConfig.getTimeout());
+        } catch (Exception tenantMiss) {
+            log.info("项目无可用自定义上游，回退平台统一配置: {}", tenantMiss.getMessage());
         }
+
+        // 2) 回退平台统一配置（元数据库 public.ai_gateway_platform_upstreams）。
+        try {
+            PlatformUpstream p = null;
+            if (upstreamName != null && !upstreamName.isEmpty()) {
+                p = platformUpstreamService.getByName(upstreamName)
+                        .orElseGet(() -> platformUpstreamService.getDefaultByProvider(provider).orElse(null));
+            } else {
+                p = platformUpstreamService.getDefaultByProvider(provider).orElse(null);
+            }
+            if (p != null) {
+                log.info("[upstream_config]使用平台统一上游: {} (provider={})", p.getName(), provider);
+                GatewayRoutingContext.set(GatewayRoutingContext.Source.PLATFORM, p.getName());
+                return new UpstreamInfo(
+                        p.getName(),
+                        p.getBaseUrl(),
+                        p.getAuthToken(),
+                        p.getTimeoutMs() == null ? anthropicConfig.getTimeout() : p.getTimeoutMs(),
+                        p.getMaxInputTokens());
+            }
+        } catch (Exception platformMiss) {
+            log.warn("平台统一上游解析失败: {}", platformMiss.getMessage());
+        }
+
+        // 3) 最后回退到环境默认配置（历史行为，视为平台来源）。
+        log.warn("无可用项目/平台上游，回退环境默认配置");
+        GatewayRoutingContext.set(GatewayRoutingContext.Source.PLATFORM, "config-file");
+        return new UpstreamInfo(
+                "config-file",
+                anthropicConfig.getBaseUrl(),
+                anthropicConfig.getAuthToken(),
+                anthropicConfig.getTimeout());
     }
 
     /**
@@ -926,6 +952,14 @@ public class ClaudeGatewayService {
         long startTime = System.currentTimeMillis();
         String requestId = UUID.randomUUID().toString();
 
+        // Streaming SSE callbacks fire on OkHttp dispatcher threads, which do NOT carry the request
+        // thread's ThreadLocals. Capture tenant context + routing source here (request thread) so the
+        // usage tracking at stream end can restore them — otherwise both the per-tenant and platform
+        // ledger writes would run without a resolved tenant/appCode.
+        final ai.nubase.common.context.MultiTenancyContext.ContextData capturedContext =
+                ai.nubase.common.context.MultiTenancyContext.getContext();
+        final GatewayRoutingContext.Routing capturedRouting = GatewayRoutingContext.get();
+
         ContextPruneService.PruneResult prune = contextPruneService.pruneIfNeeded(
                 requestBody, primaryUpstream.maxInputTokens, requestId);
         if (prune.pruned) {
@@ -1200,8 +1234,9 @@ public class ClaudeGatewayService {
 
                         long firstAt = firstEventAt.get();
                         Long ttft = firstAt > 0L ? firstAt - startTime : null;
-                        trackApiUsageWithTokens(clientApiKey, requestId, model, path, "POST",
-                                200, finalUsage, duration, ttft, headers);
+                        runWithCapturedContext(capturedContext, capturedRouting, () ->
+                                trackApiUsageWithTokens(clientApiKey, requestId, model, path, "POST",
+                                        200, finalUsage, duration, ttft, headers));
 
                         requestLogService.logRequest(requestId, ApiKeyLogMask.mask(clientApiKey), "POST", path,
                                 model, headers, originalRequestBody, 200,
@@ -1214,8 +1249,9 @@ public class ClaudeGatewayService {
 
                     private void recordFailedAttempt(int statusCode, String errorBody, String errorMsg) {
                         long duration = System.currentTimeMillis() - startTime;
-                        trackApiUsage(clientApiKey, requestId, model, path, "POST",
-                                statusCode, null, duration, headers, errorMsg);
+                        runWithCapturedContext(capturedContext, capturedRouting, () ->
+                                trackApiUsage(clientApiKey, requestId, model, path, "POST",
+                                        statusCode, null, duration, headers, errorMsg));
 
                         requestLogService.logRequest(requestId, ApiKeyLogMask.mask(clientApiKey), "POST", path,
                                 model, headers, originalRequestBody, statusCode, errorBody, duration,
@@ -1381,6 +1417,31 @@ public class ClaudeGatewayService {
         }
 
         return requestBuilder.build();
+    }
+
+    /**
+     * 在还原了请求线程租户上下文（及网关路由来源）的情况下执行用量统计。用于流式回调这类运行在
+     * OkHttp 派发线程、天然没有 ThreadLocal 的场景；非流式路径本就在请求线程上，可直接调用。
+     * 仅在当前线程无上下文时设置并在结束后清理，避免污染真正携带上下文的线程。
+     */
+    private void runWithCapturedContext(ai.nubase.common.context.MultiTenancyContext.ContextData ctx,
+                                        GatewayRoutingContext.Routing routing, Runnable tracking) {
+        boolean contextApplied = false;
+        try {
+            if (ctx != null && !ai.nubase.common.context.MultiTenancyContext.hasContext()) {
+                ai.nubase.common.context.MultiTenancyContext.setContext(ctx);
+                contextApplied = true;
+            }
+            if (routing != null && GatewayRoutingContext.get() == null) {
+                GatewayRoutingContext.set(routing.source(), routing.upstreamName());
+            }
+            tracking.run();
+        } finally {
+            if (contextApplied) {
+                ai.nubase.common.context.MultiTenancyContext.clear();
+                GatewayRoutingContext.clear();
+            }
+        }
     }
 
     /**
