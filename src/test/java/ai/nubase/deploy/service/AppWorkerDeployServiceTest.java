@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.util.unit.DataSize;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
@@ -23,6 +24,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -43,7 +45,7 @@ class AppWorkerDeployServiceTest {
                 .build());
         deploymentService = mock(AppDeploymentService.class);
         deployer = mock(AppWorkerDeployer.class);
-        service = new AppWorkerDeployService(deploymentService, deployer);
+        service = new AppWorkerDeployService(deploymentService, deployer, defaultProperties());
     }
 
     @AfterEach
@@ -233,6 +235,49 @@ class AppWorkerDeployServiceTest {
     }
 
     @Test
+    void rejectsServerFileThatExceedsAppWorkerFileLimit() {
+        AppWorkerDeployProperties properties = defaultProperties();
+        properties.setMaxFileSize(DataSize.ofBytes(4));
+        properties.setMaxRequestSize(DataSize.ofBytes(128));
+        service = new AppWorkerDeployService(deploymentService, deployer, properties);
+
+        ResponseStatusException exception = catchThrowableOfType(
+                () -> service.deploy(metadata(), List.of(serverFile()), List.of(assetFile())),
+                ResponseStatusException.class
+        );
+        assertThat(exception.getStatusCode().value()).isEqualTo(413);
+        assertThat(exception.getReason())
+                .contains("part=serverFile")
+                .contains("file=server/index.js")
+                .contains("limit=4")
+                .doesNotContain("export default");
+
+        verify(deployer, org.mockito.Mockito.never()).deploy(any());
+        verify(deploymentService, org.mockito.Mockito.never()).createForProjectRef(any(), any());
+    }
+
+    @Test
+    void rejectsCombinedServerAndAssetFilesThatExceedAppWorkerRequestLimit() {
+        AppWorkerDeployProperties properties = defaultProperties();
+        properties.setMaxFileSize(DataSize.ofBytes(128));
+        properties.setMaxRequestSize(DataSize.ofBytes(16));
+        service = new AppWorkerDeployService(deploymentService, deployer, properties);
+
+        ResponseStatusException exception = catchThrowableOfType(
+                () -> service.deploy(metadata(), List.of(serverFile()), List.of(assetFile())),
+                ResponseStatusException.class
+        );
+        assertThat(exception.getStatusCode().value()).isEqualTo(413);
+        assertThat(exception.getReason())
+                .contains("maximum request size")
+                .contains("limit=16")
+                .doesNotContain("<html>");
+
+        verify(deployer, org.mockito.Mockito.never()).deploy(any());
+        verify(deploymentService, org.mockito.Mockito.never()).createForProjectRef(any(), any());
+    }
+
+    @Test
     void allowsWorkerNameNamespacedUnderAppCode() {
         UUID deploymentId = UUID.randomUUID();
         when(deploymentService.createForProjectRef(eq("appabc"), any(CreateDeploymentRequest.class))).thenReturn(new DeploymentResponse(
@@ -346,5 +391,12 @@ class AppWorkerDeployServiceTest {
                 "text/html",
                 "<html></html>".getBytes(StandardCharsets.UTF_8)
         );
+    }
+
+    private AppWorkerDeployProperties defaultProperties() {
+        AppWorkerDeployProperties properties = new AppWorkerDeployProperties();
+        properties.setMaxFileSize(DataSize.ofMegabytes(64));
+        properties.setMaxRequestSize(DataSize.ofMegabytes(128));
+        return properties;
     }
 }

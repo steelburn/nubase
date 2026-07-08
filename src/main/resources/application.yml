@@ -1,4 +1,9 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: ${NUBASE_MULTIPART_MAX_FILE_SIZE:64MB}
+      max-request-size: ${NUBASE_MULTIPART_MAX_REQUEST_SIZE:128MB}
+
   ai:
     mcp:
       server:
@@ -264,6 +269,8 @@ nubase:
 
   deploy:
     app-worker:
+      max-file-size: ${NUBASE_APP_WORKER_MAX_FILE_SIZE:64MB}
+      max-request-size: ${NUBASE_APP_WORKER_MAX_REQUEST_SIZE:128MB}
       cloudflare:
         enabled: ${NUBASE_APP_WORKER_CLOUDFLARE_ENABLED:false}
         api-base-url: ${NUBASE_APP_WORKER_CLOUDFLARE_API_BASE_URL:${CLOUDFLARE_API_BASE_URL:https://api.cloudflare.com/client/v4}}

@@ -29,13 +29,14 @@ public class AppWorkerDeployService {
 
     private final AppDeploymentService deploymentService;
     private final AppWorkerDeployer deployer;
+    private final AppWorkerDeployProperties properties;
 
     public AppWorkerDeployResponse deploy(
             AppWorkerDeployMetadata metadata,
             List<MultipartFile> serverFiles,
             List<MultipartFile> assetFiles
     ) {
-        validate(metadata, serverFiles);
+        validate(metadata, serverFiles, assetFiles);
         String appCode = metadata.appCode().trim();
         String workerName = StringUtils.hasText(metadata.workerName()) ? metadata.workerName().trim() : appCode;
         AppWorkerDeploymentTarget deploymentTarget = deploymentTarget(metadata.deploymentTarget());
@@ -145,7 +146,7 @@ public class AppWorkerDeployService {
         }
     }
 
-    private void validate(AppWorkerDeployMetadata metadata, List<MultipartFile> serverFiles) {
+    private void validate(AppWorkerDeployMetadata metadata, List<MultipartFile> serverFiles, List<MultipartFile> assetFiles) {
         if (metadata == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "metadata is required");
         }
@@ -163,6 +164,7 @@ public class AppWorkerDeployService {
         if (serverFiles == null || serverFiles.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "serverFile is required");
         }
+        validateUploadSize(serverFiles, assetFiles);
     }
 
     /**
@@ -180,6 +182,39 @@ public class AppWorkerDeployService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "workerName must equal the project appCode or start with \"" + app + "-\"");
         }
+    }
+
+    private void validateUploadSize(List<MultipartFile> serverFiles, List<MultipartFile> assetFiles) {
+        long maxFileSize = properties.getMaxFileSize().toBytes();
+        long maxRequestSize = properties.getMaxRequestSize().toBytes();
+        long totalSize = 0L;
+        totalSize += validatePartFiles("serverFile", serverFiles, maxFileSize);
+        totalSize += validatePartFiles("assetFile", assetFiles, maxFileSize);
+        if (totalSize > maxRequestSize) {
+            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
+                    "App worker upload exceeds maximum request size: size=" + totalSize
+                            + " limit=" + maxRequestSize);
+        }
+    }
+
+    private long validatePartFiles(String partName, List<MultipartFile> files, long maxFileSize) {
+        long totalSize = 0L;
+        for (MultipartFile file : files == null ? List.<MultipartFile>of() : files) {
+            long fileSize = file.getSize();
+            totalSize += fileSize;
+            if (fileSize > maxFileSize) {
+                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
+                        "App worker upload exceeds maximum file size: part=" + partName
+                                + " file=" + uploadFileName(file)
+                                + " size=" + fileSize
+                                + " limit=" + maxFileSize);
+            }
+        }
+        return totalSize;
+    }
+
+    private String uploadFileName(MultipartFile file) {
+        return StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : file.getName();
     }
 
     private Map<String, Object> manifestSummary(
